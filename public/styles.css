@@ -1493,6 +1493,10 @@ button:disabled {
   color: var(--muted);
   cursor: pointer;
   border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transform: translateY(-1.25px);
 }
 
 .group-launch:hover {
@@ -1513,7 +1517,7 @@ button:disabled {
   line-height: 1;
   border: none;
   background: transparent;
-  color: color-mix(in srgb, var(--text) 72%, var(--muted));
+  color: var(--muted);
   cursor: pointer;
   border-radius: 4px;
   flex-shrink: 0;

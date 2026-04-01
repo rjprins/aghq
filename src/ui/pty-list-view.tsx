@@ -251,7 +251,7 @@ function PtyItemRow(
         <button
           type="button"
           className="pty-close"
-          title="Close"
+          title="Close session"
           aria-label={`Close PTY ${item.process}`}
           onClick={(ev) => {
             ev.preventDefault();
@@ -259,7 +259,7 @@ function PtyItemRow(
             handlers.onKillPty(item.id);
           }}
         >
-          x
+          {"\u23f9"}
         </button>
       </div>
       <span className={`ready-dot compact ${item.readyIndicator}`} title={`${item.process} - ${item.readyState}`} />
