@@ -159,6 +159,27 @@
         }
       }
     },
+    "/api/ptys/{id}/name": {
+      "put": {
+        "summary": "Rename a PTY session",
+        "parameters": [
+          { "$ref": "#/components/parameters/ptyId" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "type": "object" }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Renamed" },
+          "400": { "description": "Bad request" },
+          "404": { "description": "Not found" }
+        }
+      }
+    },
     "/api/ptys/{id}/resume": {
       "post": {
         "summary": "Legacy runtime resume endpoint",

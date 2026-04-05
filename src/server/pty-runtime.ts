@@ -257,6 +257,19 @@ export function createRuntime(deps: RuntimeDeps) {
     try {
       const windows = await tmuxListWindows(agmuxSession);
       const windowTargets = new Set(windows.map((w) => w.target));
+      const persistedRunningByTarget = new Map<string, PtySummary>();
+      for (const session of store.listSessions(1000)) {
+        if (
+          session.status !== "running" ||
+          !session.tmuxSession ||
+          session.tmuxServer === "default" ||
+          tmuxTargetSession(session.tmuxSession) !== agmuxSession ||
+          persistedRunningByTarget.has(session.tmuxSession)
+        ) {
+          continue;
+        }
+        persistedRunningByTarget.set(session.tmuxSession, session);
+      }
 
       const runningByTarget = new Map<string, string>();
       // Track PTYs that target a whole session (no window specifier) — these
@@ -284,9 +297,11 @@ export function createRuntime(deps: RuntimeDeps) {
       const shell = process.env.AGMUX_SHELL ?? process.env.SHELL ?? "bash";
       for (const w of windows) {
         if (!runningByTarget.has(w.target) && !runningByTarget.has(agmuxSession)) {
+          const persisted = persistedRunningByTarget.get(w.target);
           const { linkedSession, attachArgs } = await tmuxCreateLinkedSession(w.target);
           const summary = ptys.spawn({
-            name: `shell:${path.basename(shell)}`,
+            id: persisted?.id,
+            name: persisted?.name ?? `shell:${path.basename(shell)}`,
             backend: "tmux",
             tmuxSession: w.target,
             tmuxServer: "agmux",
@@ -294,6 +309,8 @@ export function createRuntime(deps: RuntimeDeps) {
             args: attachArgs,
             cols: 120,
             rows: 30,
+            cwd: persisted?.cwd ?? undefined,
+            createdAt: persisted?.createdAt,
           });
           linkedSessionsByPty.set(summary.id, { name: linkedSession, server: "agmux" });
           store.upsertSession(summary);

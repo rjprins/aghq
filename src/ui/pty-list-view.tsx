@@ -21,7 +21,8 @@ export type RunningPtyItem = {
   readyState: ReadyState;
   readyIndicator: ReadyIndicator;
   readyReason: string;
-  process: string;
+  name: string;
+  process?: string;
   title?: string;
   secondaryText: string;
   worktree?: string;
@@ -104,6 +105,7 @@ export type PtyListHandlers = {
   onOpenLaunch: (groupKey: string) => void;
   onOpenLaunchInWorktree: (groupKey: string, worktreePath: string) => void;
   onSelectPty: (ptyId: string) => void;
+  onRenamePty: (ptyId: string) => void;
   onKillPty: (ptyId: string) => void;
   onResumeInactive: (ptyId: string) => void;
   onInactiveActions: (ptyId: string) => void;
@@ -234,13 +236,31 @@ function PtyItemRow(
                 )
                 : null}
             </span>
-            <div className="primary">{item.process}</div>
-            {item.title ? <span className="title-label" title={item.title}>{item.title}</span> : null}
+            <div className="primary">{item.name}</div>
+            <button
+              type="button"
+              className="session-edit-btn"
+              title={`Rename session ${item.name}`}
+              aria-label={`Rename session ${item.name}`}
+              onClick={(ev) => {
+                ev.preventDefault();
+                ev.stopPropagation();
+                handlers.onRenamePty(item.id);
+              }}
+            >
+              {"\ud83d\udd89"}
+            </button>
           </div>
-          {(item.worktree || item.secondaryText) ? (
+          {(item.process || item.worktree || item.secondaryText || item.title) ? (
             <div className="secondary">
+              {item.process ? (
+                <span className="process-badge" title={`Active process: ${item.process}`}>{item.process}</span>
+              ) : null}
               {item.worktree ? (
                 <span className="worktree-badge" title={item.cwd ?? ""}>{item.worktree}</span>
+              ) : null}
+              {item.title ? (
+                <span className="title-label" title={item.title}>{item.title}</span>
               ) : null}
               {item.secondaryText ? (
                 <span className="secondary-text">{item.secondaryText}</span>
@@ -252,7 +272,7 @@ function PtyItemRow(
           type="button"
           className="pty-close"
           title="Close session"
-          aria-label={`Close PTY ${item.process}`}
+          aria-label={`Close PTY ${item.name}`}
           onClick={(ev) => {
             ev.preventDefault();
             ev.stopPropagation();
@@ -262,7 +282,7 @@ function PtyItemRow(
           {"\u23f9"}
         </button>
       </div>
-      <span className={`ready-dot compact ${item.readyIndicator}`} title={`${item.process} - ${item.readyState}`} />
+      <span className={`ready-dot compact ${item.readyIndicator}`} title={`${item.name} - ${item.readyState}`} />
     </li>
   );
 }

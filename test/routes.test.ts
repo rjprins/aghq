@@ -12,7 +12,7 @@ describe("route wiring", () => {
   it("serves /api/ptys with runtime list", async () => {
     const fastify = Fastify();
     const runtime = {
-      ptys: { spawn: () => {}, list: () => [], getSummary: () => null, kill: () => {}, write: () => {}, resize: () => {} },
+      ptys: { spawn: () => {}, list: () => [], getSummary: () => null, kill: () => {}, write: () => {}, resize: () => {}, updateName: () => null },
       readinessEngine: { registerAgent: () => {}, markBusy: () => {}, markExited: () => {}, markReady: () => {} },
       listPtys: async () => [
         { id: "pty-1", name: "shell", backend: "tmux", command: "tmux", args: [], cwd: null, createdAt: 0, status: "running" },
@@ -31,6 +31,7 @@ describe("route wiring", () => {
     const agentSessions = {
       attachPtyToAgentSession: () => {},
       upsertAgentSessionSummary: () => {},
+      renameAttachedSession: () => false,
     } as any;
     const worktrees = {
       resolveProjectRoot: async () => null,
@@ -71,6 +72,7 @@ describe("route wiring", () => {
         kill: () => {},
         write: () => {},
         resize: () => {},
+        updateName: () => null,
       },
       readinessEngine: { registerAgent: () => {}, markBusy: () => {}, markExited: () => {}, markReady: () => {} },
       listPtys: async () => [],
@@ -85,6 +87,11 @@ describe("route wiring", () => {
       loadAllInputHistory: () => ({}),
       saveInputHistory: () => {},
     } as any;
+    const agentSessions = {
+      attachPtyToAgentSession: () => {},
+      upsertAgentSessionSummary: () => {},
+      renameAttachedSession: () => false,
+    } as any;
     const worktrees = {
       resolveProjectRoot: async () => null,
       createWorktreeFromBase: async () => "",
@@ -95,6 +102,7 @@ describe("route wiring", () => {
     registerPtyRoutes({
       fastify,
       store,
+      agentSessions,
       runtime,
       worktrees,
       defaultBaseBranch: "main",

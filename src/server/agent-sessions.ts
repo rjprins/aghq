@@ -233,6 +233,30 @@ export function createAgentSessionService(deps: AgentSessionServiceDeps) {
     agentSessionRefByPty.delete(ptyId);
   }
 
+  function renameAttachedSession(ptyId: string, name: string, ts = Date.now()): boolean {
+    const ref = agentSessionRefByPty.get(ptyId);
+    if (!ref) return false;
+    const persisted = store.getAgentSession(ref.provider, ref.providerSessionId);
+    const effectiveName = name.trim();
+    if (!effectiveName) return false;
+    upsertAgentSessionSummary({
+      id: agentSessionPublicId(ref.provider, ref.providerSessionId),
+      provider: ref.provider,
+      providerSessionId: ref.providerSessionId,
+      name: effectiveName,
+      command: persisted?.command ?? ref.provider,
+      args: persisted?.args ?? resumeArgsForProvider(ref.provider, ref.providerSessionId),
+      cwd: persisted?.cwd ?? null,
+      cwdSource: persisted?.cwdSource ?? "db",
+      projectRoot: serverProjectRootFromCwd(persisted?.cwd ?? null),
+      worktree: serverWorktreeFromCwd(persisted?.cwd ?? null),
+      createdAt: persisted?.createdAt ?? ts,
+      lastSeenAt: Math.max(persisted?.lastSeenAt ?? 0, ts),
+      lastRestoredAt: persisted?.lastRestoredAt ?? null,
+    });
+    return true;
+  }
+
   return {
     listAgentSessions,
     findAgentSessionSummary,
@@ -241,5 +265,6 @@ export function createAgentSessionService(deps: AgentSessionServiceDeps) {
     attachPtyToAgentSession,
     attachedAgentSessionForPty,
     detachPty,
+    renameAttachedSession,
   };
 }

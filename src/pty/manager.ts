@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import * as pty from "node-pty";
 import type { IPty } from "node-pty";
 import type { PtyId, PtySummary, TmuxServer } from "../types.js";
+import { defaultSessionName } from "../session-names.js";
 
 export type PtySpawnRequest = {
   id?: string;
@@ -60,7 +61,7 @@ export class PtyManager extends EventEmitter {
 
     const summary: PtySummary = {
       id,
-      name: req.name ?? req.command,
+      name: defaultSessionName(id, req.name ?? req.command),
       backend: "tmux",
       tmuxSession: req.tmuxSession ?? null,
       tmuxServer: req.tmuxServer ?? null,
@@ -121,6 +122,13 @@ export class PtyManager extends EventEmitter {
   updateCwd(id: PtyId, cwd: string): void {
     const s = this.sessions.get(id);
     if (s) s.summary.cwd = cwd;
+  }
+
+  updateName(id: PtyId, name: string): PtySummary | null {
+    const s = this.sessions.get(id);
+    if (!s) return null;
+    s.summary.name = name;
+    return { ...s.summary };
   }
 
   getPid(id: PtyId): number | null {

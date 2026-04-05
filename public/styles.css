@@ -606,7 +606,8 @@ button:disabled {
   min-width: 0;
 }
 
-.worktree-badge {
+.worktree-badge,
+.process-badge {
   font-size: 10px;
   padding: 0 5px;
   border-radius: 4px;
@@ -617,6 +618,30 @@ button:disabled {
   max-width: 120px;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.process-badge {
+  color: color-mix(in srgb, var(--text) 70%, var(--muted));
+  background: color-mix(in srgb, var(--pty-color, var(--accent)) 12%, var(--surface-hover));
+  border-color: color-mix(in srgb, var(--pty-color, var(--accent)) 30%, var(--surface-border));
+  max-width: 140px;
+}
+
+.session-edit-btn {
+  padding: 0 4px;
+  font-size: 10px;
+  line-height: 1;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  border-radius: 4px;
+  flex: 0 0 auto;
+}
+
+.session-edit-btn:hover {
+  color: var(--text);
+  background: var(--surface);
 }
 
 .pty-close {
@@ -1688,6 +1713,10 @@ button:disabled {
     pointer-events: none;
   }
 
+  #app .pty-close {
+    display: none;
+  }
+
   #mobile-root {
     display: block;
     position: fixed;
@@ -1704,7 +1733,7 @@ button:disabled {
     display: flex;
     flex-direction: column;
     gap: 0;
-    padding: calc(16px + env(safe-area-inset-top)) 16px calc(16px + env(safe-area-inset-bottom));
+    padding: calc(12px + env(safe-area-inset-top)) 16px calc(env(safe-area-inset-bottom) + 10px);
     background: linear-gradient(145deg, rgba(255, 255, 255, 0.8), rgba(255, 255, 255, 0.4));
     backdrop-filter: blur(10px);
     overflow: hidden;
@@ -1746,10 +1775,10 @@ button:disabled {
   .mobile-topbar {
     display: flex;
     flex-direction: row;
-    align-items: flex-start;
+    align-items: center;
     justify-content: space-between;
     gap: 12px;
-    padding: 6px 4px 12px;
+    padding: 2px 2px 8px;
     z-index: 4;
   }
 
@@ -1768,17 +1797,13 @@ button:disabled {
   }
 
   .mobile-brand-title {
-    font-size: 18px;
+    font-size: 17px;
     letter-spacing: 0.02em;
     font-weight: 600;
   }
 
   .mobile-brand-sub {
-    font-size: 10px;
-    text-transform: uppercase;
-    letter-spacing: 0.12em;
-    color: rgba(31, 27, 22, 0.55);
-    white-space: nowrap;
+    display: none;
   }
 
   .mobile-reconnect-bar {
@@ -1813,7 +1838,7 @@ button:disabled {
   .mobile-action {
     -webkit-appearance: none;
     appearance: none;
-    padding: 6px 9px;
+    padding: 5px 9px;
     border-radius: 999px;
     border: 1px solid rgba(31, 27, 22, 0.18);
     background: rgba(255, 255, 255, 0.7);
@@ -1900,7 +1925,7 @@ button:disabled {
     background: rgba(255, 255, 255, 0.78);
     border: 1px solid rgba(31, 27, 22, 0.1);
     border-radius: 18px;
-    padding: 14px;
+    padding: 12px;
     box-shadow: 0 12px 30px rgba(31, 27, 22, 0.08);
     margin-bottom: 12px;
   }
@@ -2032,6 +2057,7 @@ button:disabled {
     display: flex;
     align-items: center;
     gap: 8px;
+    flex-wrap: wrap;
   }
 
   .status-dot {
@@ -2051,12 +2077,30 @@ button:disabled {
   }
 
   .focus-title {
-    font-size: 16px;
+    font-size: 15px;
     font-weight: 600;
-    flex: 1;
+    flex: 1 1 auto;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+
+  .mobile-meta-pill {
+    display: inline-flex;
+    align-items: center;
+    min-width: 0;
+    padding: 4px 8px;
+    border-radius: 999px;
+    border: 1px solid rgba(31, 27, 22, 0.12);
+    background: rgba(31, 27, 22, 0.06);
+    color: rgba(31, 27, 22, 0.68);
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 120px;
   }
 
   .focus-elapsed {
@@ -2069,11 +2113,11 @@ button:disabled {
   }
 
   .focus-subtitle {
-    margin-top: 6px;
+    margin-top: 4px;
     color: rgba(31, 27, 22, 0.6);
-    font-size: 13px;
+    font-size: 12px;
     display: -webkit-box;
-    -webkit-line-clamp: 2;
+    -webkit-line-clamp: 1;
     -webkit-box-orient: vertical;
     overflow: hidden;
   }
@@ -2126,7 +2170,7 @@ button:disabled {
   }
 
   .focus-xterm-mount {
-    margin-top: 10px;
+    margin-top: 8px;
     margin-left: -14px;
     margin-right: -14px;
     width: calc(100% + 28px);
@@ -2146,11 +2190,13 @@ button:disabled {
   .mobile-shell.mobile-view-session {
     padding-left: 0;
     padding-right: 0;
+    padding-top: calc(8px + env(safe-area-inset-top));
+    padding-bottom: env(safe-area-inset-bottom);
   }
 
   .mobile-shell.mobile-view-session .mobile-topbar {
-    padding-left: max(20px, calc(env(safe-area-inset-left) + 4px));
-    padding-right: max(20px, calc(env(safe-area-inset-right) + 4px));
+    padding-left: max(16px, calc(env(safe-area-inset-left) + 2px));
+    padding-right: max(16px, calc(env(safe-area-inset-right) + 2px));
     z-index: 6;
   }
 
@@ -2189,7 +2235,7 @@ button:disabled {
     width: 100%;
     border-radius: 12px;
     border: 1px solid rgba(31, 27, 22, 0.15);
-    padding: 10px 12px;
+    padding: 9px 12px;
     font: 16px/1.4 "JetBrains Mono", "Fira Code", "SF Mono", "Consolas", monospace;
     background: rgba(255, 255, 255, 0.8);
     color: #1f1b16;
@@ -2197,13 +2243,13 @@ button:disabled {
   }
 
   .focus-composer {
-    margin-top: 12px;
+    margin-top: 8px;
     padding-top: 0;
     border-top: none;
   }
 
   .composer-actions {
-    margin-top: 10px;
+    margin-top: 8px;
     display: flex;
     justify-content: space-between;
     gap: 8px;
@@ -2309,6 +2355,30 @@ button:disabled {
     gap: 8px;
   }
 
+  .mobile-title-group {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+
+  .mobile-edit-btn {
+    padding: 2px 4px;
+    border: none;
+    background: transparent;
+    color: rgba(31, 27, 22, 0.6);
+    border-radius: 8px;
+    font-size: 10px;
+    line-height: 1;
+    flex: 0 0 auto;
+  }
+
+  .mobile-edit-btn:hover {
+    background: rgba(31, 27, 22, 0.06);
+    color: rgba(31, 27, 22, 0.82);
+  }
+
   .session-card-close {
     border: 1px solid rgba(168, 52, 32, 0.25);
     background: rgba(168, 52, 32, 0.08);
@@ -2343,7 +2413,7 @@ button:disabled {
 
   .session-card-title {
     font-weight: 600;
-    flex: 1;
+    flex: 1 1 auto;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;

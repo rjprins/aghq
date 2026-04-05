@@ -78,6 +78,7 @@ import {
   type MobileView,
   type MobileViewModel,
 } from "./mobile-view";
+import { BOT_NAMES, displaySessionName } from "../session-names.js";
 
 type ServerMsg = ServerToClientMessage;
 
@@ -966,15 +967,79 @@ function createTermState(ptyId: string): TermState {
   copyToast.textContent = "Copied";
   container.appendChild(copyToast);
   let copyToastTimer = 0;
+  let lastCopiedSelection = "";
+  let pendingCopiedSelection = "";
+
+  const showCopyToast = () => {
+    clearTimeout(copyToastTimer);
+    copyToast.classList.add("visible");
+    copyToastTimer = window.setTimeout(() => copyToast.classList.remove("visible"), 800);
+  };
+
+  const fallbackCopyText = (text: string): boolean => {
+    const textarea = document.createElement("textarea");
+    textarea.value = text;
+    textarea.setAttribute("readonly", "true");
+    textarea.style.position = "fixed";
+    textarea.style.top = "0";
+    textarea.style.left = "-9999px";
+    textarea.style.opacity = "0";
+    document.body.appendChild(textarea);
+    textarea.focus();
+    textarea.select();
+    try {
+      return typeof document.execCommand === "function" ? document.execCommand("copy") : false;
+    } catch {
+      return false;
+    } finally {
+      textarea.remove();
+    }
+  };
+
+  const writeClipboardText = async (text: string): Promise<boolean> => {
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        return true;
+      }
+    } catch {
+      // Fall back to execCommand-based copy below.
+    }
+    return fallbackCopyText(text);
+  };
+
+  const copySelectionToClipboard = () => {
+    const sel = term.getSelection().replace(/\u00a0/g, " ").trimEnd();
+    if (!sel) {
+      lastCopiedSelection = "";
+      pendingCopiedSelection = "";
+      return;
+    }
+    if (sel === lastCopiedSelection || sel === pendingCopiedSelection) return;
+    pendingCopiedSelection = sel;
+    void writeClipboardText(sel).then((copied) => {
+      if (pendingCopiedSelection === sel) pendingCopiedSelection = "";
+      if (!copied) return;
+      lastCopiedSelection = sel;
+      showCopyToast();
+    });
+  };
 
   term.onSelectionChange(() => {
-    const sel = term.getSelection();
-    if (!sel) return;
-    navigator.clipboard.writeText(sel).then(() => {
-      clearTimeout(copyToastTimer);
-      copyToast.classList.add("visible");
-      copyToastTimer = window.setTimeout(() => copyToast.classList.remove("visible"), 800);
-    }).catch(() => {});
+    if (!term.getSelection()) {
+      lastCopiedSelection = "";
+      pendingCopiedSelection = "";
+      return;
+    }
+    queueMicrotask(copySelectionToClipboard);
+  });
+
+  container.addEventListener("mouseup", copySelectionToClipboard);
+  container.addEventListener("touchend", copySelectionToClipboard, { passive: true });
+  container.addEventListener("keyup", (ev) => {
+    if (!(ev instanceof KeyboardEvent)) return;
+    if (!ev.shiftKey && ev.key !== "Shift") return;
+    copySelectionToClipboard();
   });
 
   term.onTitleChange((title) => {
@@ -1609,6 +1674,7 @@ function samePtys(a: PtySummary[], b: PtySummary[]): boolean {
     const right = b[i];
     if (!left || !right) return false;
     if (left.id !== right.id) return false;
+    if ((left.name ?? "") !== (right.name ?? "")) return false;
     if (left.status !== right.status) return false;
     if ((left.cwd ?? null) !== (right.cwd ?? null)) return false;
     if ((left.tmuxSession ?? null) !== (right.tmuxSession ?? null)) return false;
@@ -2531,6 +2597,40 @@ async function killPtyDirect(ptyId: string): Promise<void> {
   await refreshList({ forceAgentSessions: true });
 }
 
+async function renamePty(ptyId: string): Promise<void> {
+  const pty = ptys.find((item) => item.id === ptyId);
+  if (!pty) {
+    addEvent(`Failed to rename PTY ${ptyId}: unknown session`);
+    return;
+  }
+
+  const currentName = displaySessionName(pty);
+  const exampleName = BOT_NAMES.find((candidate) => candidate !== currentName) ?? BOT_NAMES[0] ?? "Ada";
+  const proposedName = window.prompt(`Name this session. Example: ${exampleName}`, currentName);
+  if (proposedName == null) return;
+
+  const nextName = proposedName.trim();
+  if (!nextName || nextName === currentName) return;
+  if (nextName.length > 40) {
+    addEvent(`Failed to rename PTY ${ptyId}: name must be 40 characters or fewer`);
+    return;
+  }
+
+  const res = await authFetch(`/api/ptys/${encodeURIComponent(ptyId)}/name`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name: nextName }),
+  });
+  if (!res.ok) {
+    addEvent(`Failed to rename PTY ${ptyId}: ${await readApiError(res)}`);
+    return;
+  }
+
+  ptys = ptys.map((item) => item.id === ptyId ? { ...item, name: nextName } : item);
+  renderList();
+  void refreshList({ forceAgentSessions: true });
+}
+
 function killPty(ptyId: string): void {
   const p = ptys.find((x) => x.id === ptyId);
   if (!p) {
@@ -3298,22 +3398,23 @@ loadCollapsedSet(ARCHIVED_WORKTREES_COLLAPSED_KEY, collapsedArchivedWorktrees);
 let archivedSectionExpandedOverride = loadBooleanPreference(ARCHIVED_SECTION_EXPANDED_KEY);
 
 function buildRunningPtyItem(p: PtySummary): RunningPtyItem {
+  const name = displaySessionName(p);
   const title = (ptyTitles.get(p.id) ?? "").trim();
   const activeProcess = compactWhitespace(p.activeProcess ?? "");
   const inferredAgent = inferAgentFromRecentInput(p.id);
   const preferTitleAgentLabel = Boolean(title) && isAgentProcessName(title) && isGenericRuntimeProcess(activeProcess);
-  const process = preferTitleAgentLabel
+  const process = compactWhitespace(preferTitleAgentLabel
     ? title
     : (
       inferredAgent && isGenericRuntimeProcess(activeProcess)
         ? inferredAgent
         : ((activeProcess && !isShellProcess(activeProcess) ? activeProcess : "") || activeProcess || title || p.name)
-    );
+    ));
   const inputPreview = ptyLastInput.get(p.id) ?? "";
   const readyInfo = ptyReady.get(p.id) ?? readinessFromSummary(p);
   const changedAt = ptyStateChangedAt.get(p.id);
   const elapsed = changedAt ? formatElapsedTime(changedAt) : "";
-  const secondaryText = title && title !== process ? title : inputPreview ? `> ${inputPreview}` : p.name;
+  const secondaryText = inputPreview ? `> ${inputPreview}` : "";
 
   return {
     id: p.id,
@@ -3322,8 +3423,9 @@ function buildRunningPtyItem(p: PtySummary): RunningPtyItem {
     readyState: readyInfo.state,
     readyIndicator: readyInfo.indicator,
     readyReason: readyInfo.reason,
-    process,
-    title: title && title !== process ? title : undefined,
+    name,
+    process: process && process !== name ? process : undefined,
+    title: title && title !== process && title !== name ? title : undefined,
     secondaryText,
     worktree: ptyWorktreeLabel(p),
     cwd: p.cwd ?? undefined,
@@ -3418,6 +3520,21 @@ function buildMobileTitle(pty: PtySummary, process: string, worktree?: string): 
   return "Session";
 }
 
+function buildMobileSessionMeta(pty: PtySummary, item: RunningPtyItem): string {
+  const parts = [item.process, item.worktree, item.title]
+    .filter((value): value is string => Boolean(value))
+    .filter((value, index, values) => values.indexOf(value) === index);
+  if (parts.length > 0) return parts.join(" • ");
+  const fallback = buildMobileTitle(pty, item.process ?? item.name, item.worktree);
+  return fallback === "Session" ? "" : fallback;
+}
+
+function buildMobileMetaPills(item: RunningPtyItem): string[] {
+  return [item.process, item.worktree]
+    .filter((value): value is string => Boolean(value))
+    .filter((value, index, values) => values.indexOf(value) === index);
+}
+
 function getOutputPreviewLines(ptyId: string, maxLines = 6): string[] {
   const st = terms.get(ptyId);
   if (!st) return [];
@@ -3438,10 +3555,13 @@ function getOutputPreviewLines(ptyId: string, maxLines = 6): string[] {
 function buildMobileRunningSession(p: PtySummary): MobileRunningSession {
   const item = buildRunningPtyItem(p);
   const lastInput = ptyLastInput.get(p.id) ?? "";
+  const meta = buildMobileSessionMeta(p, item);
+  const metaPills = buildMobileMetaPills(item);
   return {
     id: p.id,
-    process: buildMobileTitle(p, item.process, item.worktree),
-    subtitle: lastInput,
+    process: item.name,
+    subtitle: meta || lastInput,
+    metaPills: metaPills.length > 0 ? metaPills : undefined,
     worktree: item.worktree,
     cwd: item.cwd,
     readyState: item.readyState,
@@ -3457,10 +3577,12 @@ function buildMobileRunningSession(p: PtySummary): MobileRunningSession {
 function buildMobileFocus(p: PtySummary): MobileFocus {
   const item = buildRunningPtyItem(p);
   const lastInput = ptyLastInput.get(p.id) ?? "";
+  const metaPills = buildMobileMetaPills(item);
   return {
     id: p.id,
-    title: buildMobileTitle(p, item.process, item.worktree),
+    title: item.name,
     subtitle: lastInput,
+    metaPills: metaPills.length > 0 ? metaPills : undefined,
     readyState: item.readyState,
     readyIndicator: item.readyIndicator,
     readyReason: item.readyReason,
@@ -3841,6 +3963,7 @@ function renderMobileViewState(): void {
     renderMobileView(mobileRoot, null, {
       onSelectRunning: () => {},
       onCloseRunning: () => {},
+      onRenameRunning: () => {},
       onOpenLaunch: () => {},
       onTogglePinProject: () => {},
       onArchiveProject: () => {},
@@ -3897,6 +4020,9 @@ function renderMobileViewState(): void {
         saveMobileView();
       }
       renderMobileViewState();
+    },
+    onRenameRunning: (ptyId) => {
+      void renamePty(ptyId);
     },
     onOpenLaunch: () => {
       const active = activePtyId ? ptys.find((p) => p.id === activePtyId) : null;
@@ -4232,6 +4358,9 @@ function renderList(): void {
     onOpenLaunch: (groupKey) => openLaunchModal(groupKey),
     onOpenLaunchInWorktree: (groupKey, worktreePath) => openLaunchModal(groupKey, worktreePath),
     onSelectPty: (ptyId) => setActive(ptyId),
+    onRenamePty: (ptyId) => {
+      void renamePty(ptyId);
+    },
     onKillPty: (ptyId) => {
       killPty(ptyId);
     },

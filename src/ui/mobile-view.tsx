@@ -11,6 +11,7 @@ export type MobileRunningSession = {
   id: string;
   process: string;
   subtitle: string;
+  metaPills?: string[];
   worktree?: string;
   cwd?: string;
   readyState: "ready" | "busy" | "unknown";
@@ -54,6 +55,7 @@ export type MobileFocus = {
   id: string;
   title: string;
   subtitle: string;
+  metaPills?: string[];
   readyState: "ready" | "busy" | "unknown";
   readyIndicator: "ready" | "busy";
   readyReason: string;
@@ -112,6 +114,7 @@ export type MobileViewModel = {
 export type MobileViewHandlers = {
   onSelectRunning: (ptyId: string) => void;
   onCloseRunning: (ptyId: string) => void;
+  onRenameRunning: (ptyId: string) => void;
   onOpenLaunch: () => void;
   onTogglePinProject: (projectKey: string) => void;
   onArchiveProject: (projectKey: string) => void;
@@ -191,7 +194,21 @@ function renderRunningSessionCard(
     >
       <div className="session-card-header">
         <span className={`status-dot ${session.readyIndicator}`} />
-        <div className="session-card-title" title={session.process}>{session.process}</div>
+        <div className="mobile-title-group">
+          <div className="session-card-title" title={session.process}>{session.process}</div>
+          <button
+            type="button"
+            className="mobile-edit-btn"
+            aria-label={`Rename session ${session.process}`}
+            title={`Rename session ${session.process}`}
+            onClick={(ev) => {
+              ev.stopPropagation();
+              handlers.onRenameRunning(session.id);
+            }}
+          >
+            Edit
+          </button>
+        </div>
         {session.elapsed ? <div className="session-card-elapsed">{session.elapsed}</div> : null}
         <button
           type="button"
@@ -384,7 +401,21 @@ export function renderMobileView(
               <section className="mobile-card mobile-focus">
                 <div className="focus-header">
                   <span className={`status-dot ${model.focus.readyIndicator}`} />
-                  <div className="focus-title" title={model.focus.title}>{model.focus.title}</div>
+                  <div className="mobile-title-group">
+                    <div className="focus-title" title={model.focus.title}>{model.focus.title}</div>
+                    <button
+                      type="button"
+                      className="mobile-edit-btn"
+                      aria-label={`Rename session ${model.focus.title}`}
+                      title={`Rename session ${model.focus.title}`}
+                      onClick={() => handlers.onRenameRunning(model.focus!.id)}
+                    >
+                      Edit
+                    </button>
+                  </div>
+                  {model.focus.metaPills?.map((pill) => (
+                    <span key={`${model.focus!.id}:${pill}`} className="mobile-meta-pill" title={pill}>{pill}</span>
+                  ))}
                   {model.focus.elapsed ? <div className="focus-elapsed">{model.focus.elapsed}</div> : null}
                   <button
                     type="button"
@@ -394,7 +425,7 @@ export function renderMobileView(
                     Close
                   </button>
                 </div>
-                <div className="focus-subtitle" title={model.focus.subtitle}>{model.focus.subtitle}</div>
+                {model.focus.subtitle ? <div className="focus-subtitle" title={model.focus.subtitle}>{model.focus.subtitle}</div> : null}
                 <div
                   className="focus-xterm-mount"
                   onPointerDownCapture={(ev) => {

@@ -4,7 +4,7 @@ import type { FastifyInstance } from "fastify";
 
 import { findRecentLogSessionByCwd } from "../../logSessions.js";
 import type { SqliteStore } from "../../persist/sqlite.js";
-import type { AgentProvider, SessionTaskRef } from "../../types.js";
+import type { AgentProvider, PtySummary, SessionTaskRef } from "../../types.js";
 import { buildAgentReadyEnvExports, isAgentReadyProvider } from "../agent-ready.js";
 import {
   tmuxApplySessionUiOptions,
@@ -31,7 +31,7 @@ type PtyRoutesDeps = {
   store: SqliteStore;
   agentSessions: AgentSessionService;
   runtime: {
-    ptys: { spawn: Function; list: Function; getSummary: Function; kill: Function; write: Function; resize: Function };
+    ptys: { spawn: Function; list: Function; getSummary: Function; kill: Function; write: Function; resize: Function; updateName: Function };
     readinessEngine: { registerAgent: Function; markBusy: Function; markExited: Function; markReady: Function };
     listPtys: () => Promise<unknown>;
     broadcastPtyList: () => Promise<void>;
@@ -567,6 +567,31 @@ export function registerPtyRoutes(deps: PtyRoutesDeps): void {
     after.exitSignal = after.exitSignal ?? null;
     store.upsertSession(after);
     runtime.readinessEngine.markExited(id);
+    await runtime.broadcastPtyList();
+    return { ok: true };
+  });
+
+  fastify.put("/api/ptys/:id/name", async (req, reply) => {
+    const id = (req.params as any).id as string;
+    const body = parseJsonBody(req.body);
+    const rawName = typeof body.name === "string" ? body.name.trim() : "";
+    if (!rawName) {
+      reply.code(400);
+      return { error: "name is required" };
+    }
+    if (rawName.length > 40) {
+      reply.code(400);
+      return { error: "name must be 40 characters or fewer" };
+    }
+
+    const updated = runtime.ptys.updateName(id, rawName) as PtySummary | null;
+    if (!updated) {
+      reply.code(404);
+      return { error: "unknown PTY" };
+    }
+
+    store.upsertSession(updated);
+    agentSessions.renameAttachedSession(id, rawName);
     await runtime.broadcastPtyList();
     return { ok: true };
   });
