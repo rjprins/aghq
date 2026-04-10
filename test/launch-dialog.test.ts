@@ -21,6 +21,7 @@ import path from "node:path";
 
 import { createWorktreeService } from "../src/server/worktrees.js";
 import { agentCommand, FLAG_DEFAULTS } from "../src/server/routes/ptys.js";
+import { expandHomePath } from "../src/server/utils.js";
 import { _resetCacheForTesting, projectRootFromCwdAny, worktreeFromCwdAny } from "../src/worktree.js";
 
 // ---------------------------------------------------------------------------
@@ -292,6 +293,35 @@ describe("defaultBranch: actual git repos", () => {
     cleanup = repo.cleanup;
     const svc = makeService(repo.repoRoot);
     expect(await svc.defaultBranch(null)).toBe("main");
+  });
+
+  test("expandHomePath expands a leading tilde", () => {
+    expect(expandHomePath("~/project")).toBe(path.join(os.homedir(), "project"));
+    expect(expandHomePath("~")).toBe(os.homedir());
+  });
+
+  test("directoryExists and resolveProjectRoot both accept tilde-prefixed paths", async () => {
+    const repo = await createTempRepo("main");
+    cleanup = repo.cleanup;
+    const svc = makeService(repo.repoRoot);
+    const homeTempDir = await fs.mkdtemp(path.join(os.homedir(), ".agmux-home-test-"));
+    try {
+      const homeRepoRoot = path.join(homeTempDir, "repo");
+      await fs.mkdir(homeRepoRoot);
+
+      try {
+        execFileSync("git", ["init", "-b", "main"], { cwd: homeRepoRoot, stdio: "pipe" });
+      } catch {
+        execFileSync("git", ["init"], { cwd: homeRepoRoot, stdio: "pipe" });
+        execFileSync("git", ["symbolic-ref", "HEAD", "refs/heads/main"], { cwd: homeRepoRoot, stdio: "pipe" });
+      }
+
+      const tildeRepoPath = `~/${path.relative(os.homedir(), homeRepoRoot)}`;
+      expect(await svc.directoryExists(tildeRepoPath)).toBe(true);
+      expect(await svc.resolveProjectRoot(tildeRepoPath)).toBe(homeRepoRoot);
+    } finally {
+      await fs.rm(homeTempDir, { recursive: true, force: true });
+    }
   });
 });
 

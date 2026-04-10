@@ -31,15 +31,25 @@ export function registerWorktreeRoutes(deps: WorktreeRoutesDeps): void {
     return { exists };
   });
 
-  fastify.get("/api/worktrees", async (req) => {
+  fastify.get("/api/worktrees", async (req, reply) => {
     const q = req.query as Record<string, unknown>;
+    const rawProjectRoot = typeof q.projectRoot === "string" ? q.projectRoot.trim() : "";
     const projectRoot = await worktrees.resolveProjectRoot(q.projectRoot);
+    if (rawProjectRoot && !projectRoot) {
+      reply.code(400);
+      return { error: `project directory is not a git repository: ${rawProjectRoot}` };
+    }
     return worktrees.listWorktrees(projectRoot);
   });
 
-  fastify.get("/api/default-branch", async (req) => {
+  fastify.get("/api/default-branch", async (req, reply) => {
     const q = req.query as Record<string, unknown>;
+    const rawProjectRoot = typeof q.projectRoot === "string" ? q.projectRoot.trim() : "";
     const projectRoot = await worktrees.resolveProjectRoot(q.projectRoot);
+    if (rawProjectRoot && !projectRoot) {
+      reply.code(400);
+      return { error: `project directory is not a git repository: ${rawProjectRoot}` };
+    }
     const branch = await worktrees.defaultBranch(projectRoot);
     return { branch };
   });

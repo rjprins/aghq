@@ -1,6 +1,11 @@
 import { describe, expect, test } from "vitest";
 import type { PtySummary } from "../src/shared/protocol.js";
-import { compareSidebarGroupKeys, orderRunningPtysForSidebar } from "../src/ui/pty-order.js";
+import {
+  compareSidebarGroupKeys,
+  findNextReadyRunningPty,
+  findRunningPtyByOffset,
+  orderRunningPtysForSidebar,
+} from "../src/ui/pty-order.js";
 
 function pty(id: string, cwd: string | null, createdAt: number, status: "running" | "exited" = "running"): PtySummary {
   return {
@@ -55,5 +60,52 @@ describe("orderRunningPtysForSidebar", () => {
     });
 
     expect(ordered.map((item) => item.id)).toEqual(["alpha", "beta"]);
+  });
+});
+
+describe("findRunningPtyByOffset", () => {
+  test("skips hidden sessions while preserving the current sidebar order", () => {
+    const ordered = [
+      pty("alpha-1", "/repos/alpha", 30),
+      pty("alpha-2", "/repos/alpha", 20),
+      pty("beta-1", "/repos/beta", 10),
+    ];
+
+    const next = findRunningPtyByOffset(ordered, "beta-1", 1, {
+      isVisible: (item) => item.cwd !== "/repos/alpha",
+    });
+
+    expect(next?.id).toBe("beta-1");
+  });
+
+  test("advances from a hidden active session to the next visible session", () => {
+    const ordered = [
+      pty("alpha-1", "/repos/alpha", 40),
+      pty("beta-1", "/repos/beta", 30),
+      pty("gamma-1", "/repos/gamma", 20),
+    ];
+
+    const next = findRunningPtyByOffset(ordered, "alpha-1", 1, {
+      isVisible: (item) => item.cwd !== "/repos/alpha",
+    });
+
+    expect(next?.id).toBe("beta-1");
+  });
+});
+
+describe("findNextReadyRunningPty", () => {
+  test("ignores hidden ready sessions when cycling to the next ready PTY", () => {
+    const ordered = [
+      pty("alpha-ready", "/repos/alpha", 30),
+      pty("beta-ready", "/repos/beta", 20),
+      pty("gamma-busy", "/repos/gamma", 10),
+    ];
+
+    const next = findNextReadyRunningPty(ordered, "gamma-busy", {
+      isReady: (item) => item.id.endsWith("ready"),
+      isVisible: (item) => item.cwd !== "/repos/alpha",
+    });
+
+    expect(next?.id).toBe("beta-ready");
   });
 });

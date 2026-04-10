@@ -9,7 +9,7 @@ import {
   refreshWorktreeCacheSync,
   resolveWorktreePath,
 } from "../worktree.js";
-import { pathExistsAndIsDirectory } from "./utils.js";
+import { expandHomePath, pathExistsAndIsDirectory } from "./utils.js";
 
 type WorktreeServiceDeps = {
   repoRoot: string;
@@ -39,7 +39,7 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
 
   async function resolveProjectRoot(raw: unknown): Promise<string | null> {
     if (typeof raw !== "string" || !raw.trim()) return null;
-    const resolved = path.resolve(raw.trim());
+    const resolved = path.resolve(expandHomePath(raw.trim()));
     if (!(await pathExistsAndIsDirectory(resolved))) return null;
     try {
       await fs.stat(path.join(resolved, ".git"));
@@ -267,12 +267,12 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
   }
 
   async function directoryExists(rawPath: string): Promise<boolean> {
-    const resolved = path.resolve(rawPath);
+    const resolved = path.resolve(expandHomePath(rawPath));
     return await pathExistsAndIsDirectory(resolved);
   }
 
   function isKnownWorktreePath(rawPath: string): boolean {
-    const resolved = path.resolve(rawPath);
+    const resolved = path.resolve(expandHomePath(rawPath));
     return isKnownWorktree(resolved, repoRoot);
   }
 

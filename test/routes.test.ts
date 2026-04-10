@@ -216,6 +216,46 @@ describe("route wiring", () => {
     expect(calls).toEqual(["/resolved/repo"]);
     await fastify.close();
   });
+
+  it("rejects invalid projectRoot on /api/worktrees instead of falling back", async () => {
+    const fastify = Fastify();
+    const worktrees = {
+      listWorktrees: () => ({ worktrees: [{ name: "wt", path: "/tmp/wt", branch: "wt" }], repoRoot: "/tmp" }),
+      defaultBranch: async () => "main",
+      resolveProjectRoot: async () => null,
+      worktreeStatus: async () => ({ dirty: false, branch: "wt" }),
+      removeWorktree: async () => {},
+      directoryExists: async () => true,
+      isKnownWorktreePath: () => true,
+    } as any;
+
+    registerWorktreeRoutes({ fastify, worktrees });
+
+    const res = await fastify.inject({ method: "GET", url: "/api/worktrees?projectRoot=/not-a-repo" });
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toEqual({ error: "project directory is not a git repository: /not-a-repo" });
+    await fastify.close();
+  });
+
+  it("rejects invalid projectRoot on /api/default-branch instead of falling back", async () => {
+    const fastify = Fastify();
+    const worktrees = {
+      listWorktrees: () => ({ worktrees: [{ name: "wt", path: "/tmp/wt", branch: "wt" }], repoRoot: "/tmp" }),
+      defaultBranch: async () => "main",
+      resolveProjectRoot: async () => null,
+      worktreeStatus: async () => ({ dirty: false, branch: "wt" }),
+      removeWorktree: async () => {},
+      directoryExists: async () => true,
+      isKnownWorktreePath: () => true,
+    } as any;
+
+    registerWorktreeRoutes({ fastify, worktrees });
+
+    const res = await fastify.inject({ method: "GET", url: "/api/default-branch?projectRoot=/not-a-repo" });
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toEqual({ error: "project directory is not a git repository: /not-a-repo" });
+    await fastify.close();
+  });
 });
 
 describe("ws wiring", () => {

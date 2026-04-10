@@ -46,6 +46,8 @@ import {
 } from "./worktree-match";
 import {
   compareSidebarGroupKeys,
+  findNextReadyRunningPty,
+  findRunningPtyByOffset,
   orderRunningPtysForSidebar,
 } from "./pty-order";
 import {
@@ -1850,6 +1852,7 @@ type LaunchModalState = {
   selectedDirectory: string;
   customDirectoryValue: string;
   selectedWorktree: string;
+  customWorktreeTouched: boolean;
   branchValue: string;
   baseBranchValue: string;
   generatedBranch: string;
@@ -1879,8 +1882,9 @@ const NOOP_LAUNCH_HANDLERS = {
 function buildWorktreeOptions(
   groupCwd: string,
   worktrees?: Array<{ name: string; path: string }>,
+  allowNewWorktree = true,
 ): WorktreeOption[] {
-  const options: WorktreeOption[] = [{ value: "__new__", label: "+ New worktree" }];
+  const options: WorktreeOption[] = allowNewWorktree ? [{ value: "__new__", label: "+ New worktree" }] : [];
   if (groupCwd) {
     const name = groupCwd.split("/").filter(Boolean).at(-1) ?? groupCwd;
     options.push({ value: groupCwd, label: `Current (${name})` });
@@ -1893,6 +1897,22 @@ function buildWorktreeOptions(
     }
   }
   return options;
+}
+
+function syncLaunchWorktreeSelection(
+  state: LaunchModalState,
+  dir: string,
+  options: WorktreeOption[],
+): void {
+  if (state.selectedDirectory === "__custom__" && !state.customWorktreeTouched) {
+    state.selectedWorktree = options.some((opt) => opt.value === dir)
+      ? dir
+      : (options[0]?.value ?? "");
+    return;
+  }
+  if (!options.some((opt) => opt.value === state.selectedWorktree)) {
+    state.selectedWorktree = options[0]?.value ?? "";
+  }
 }
 
 function buildDirectoryOptions(): { value: string; label: string }[] {
@@ -1989,6 +2009,7 @@ function renderLaunchModalState(): void {
       if (!launchModalState) return;
       launchModalState.selectedDirectory = dir;
       launchModalState.projectRoot = dir === "__custom__" ? launchModalState.customDirectoryValue : dir;
+      if (dir === "__custom__") launchModalState.customWorktreeTouched = false;
       renderLaunchModalState();
       // Re-fetch worktrees and default branch for the new directory
       const effectiveRoot = getEffectiveProjectRoot(launchModalState);
@@ -2000,6 +2021,7 @@ function renderLaunchModalState(): void {
       if (!launchModalState) return;
       launchModalState.customDirectoryValue = pathValue;
       launchModalState.projectRoot = pathValue;
+      launchModalState.customWorktreeTouched = false;
       renderLaunchModalState();
       // Debounce directory refresh for custom path
       clearTimeout(customDirRefreshTimer);
@@ -2012,6 +2034,7 @@ function renderLaunchModalState(): void {
     onWorktreeChange: (worktree) => {
       if (!launchModalState) return;
       launchModalState.selectedWorktree = worktree;
+      if (launchModalState.selectedDirectory === "__custom__") launchModalState.customWorktreeTouched = true;
       renderLaunchModalState();
     },
     onBranchChange: (branch) => {
@@ -2108,13 +2131,18 @@ function refreshLaunchModalForDirectory(dir: string): void {
     .then(async (r) => (r.ok ? r.json() : Promise.reject(new Error(await readApiError(r)))))
     .then((data: { worktrees?: Array<{ name: string; path: string }> }) => {
       if (seq !== launchModalSeq || !launchModalState) return;
-      launchModalState.worktreeOptions = buildWorktreeOptions(dir, data.worktrees);
-      if (!launchModalState.worktreeOptions.some((w) => w.value === launchModalState!.selectedWorktree)) {
-        launchModalState.selectedWorktree = launchModalState.worktreeOptions[0]?.value ?? "";
-      }
+      const options = buildWorktreeOptions(dir, data.worktrees, true);
+      launchModalState.worktreeOptions = options;
+      syncLaunchWorktreeSelection(launchModalState, dir, options);
       renderLaunchModalState();
     })
-    .catch(() => {});
+    .catch(() => {
+      if (seq !== launchModalSeq || !launchModalState) return;
+      const options = buildWorktreeOptions(dir, undefined, false);
+      launchModalState.worktreeOptions = options;
+      syncLaunchWorktreeSelection(launchModalState, dir, options);
+      renderLaunchModalState();
+    });
 }
 
 function openLaunchModal(groupCwd: string, preselectedWorktree?: string): void {
@@ -2130,6 +2158,7 @@ function openLaunchModal(groupCwd: string, preselectedWorktree?: string): void {
     selectedDirectory: preselectedDir,
     customDirectoryValue: preselectedDir === "__custom__" ? (groupCwd || homeDir) : "",
     selectedWorktree: preselectedWorktree ?? "__new__",
+    customWorktreeTouched: false,
     branchValue: "",
     baseBranchValue: "",
     generatedBranch: generateBranchName(),
@@ -4687,26 +4716,28 @@ function runningPtys(): PtySummary[] {
   });
 }
 
+function ptyVisibleForDesktopCycling(pty: PtySummary): boolean {
+  if (mobileViewport) return true;
+  return !collapsedGroups.has(runningPtyGroupKey(pty));
+}
+
 function switchPtyByOffset(offset: number): void {
   const running = runningPtys();
-  if (running.length === 0) return;
-  const idx = running.findIndex((p) => p.id === activePtyId);
-  const next = (idx + offset + running.length) % running.length;
-  setActive(running[next].id);
+  const next = findRunningPtyByOffset(running, activePtyId, offset, {
+    isVisible: ptyVisibleForDesktopCycling,
+  });
+  if (!next) return;
+  setActive(next.id);
 }
 
 function switchToNextReady(): void {
   const running = runningPtys();
-  if (running.length === 0) return;
-  const idx = Math.max(0, running.findIndex((p) => p.id === activePtyId));
-  for (let i = 1; i <= running.length; i++) {
-    const candidate = running[(idx + i) % running.length];
-    const readyInfo = ptyReady.get(candidate.id);
-    if (readyInfo?.state === "ready") {
-      setActive(candidate.id);
-      return;
-    }
-  }
+  const next = findNextReadyRunningPty(running, activePtyId, {
+    isVisible: ptyVisibleForDesktopCycling,
+    isReady: (candidate) => ptyReady.get(candidate.id)?.state === "ready",
+  });
+  if (!next) return;
+  setActive(next.id);
 }
 
 document.addEventListener(

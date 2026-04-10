@@ -25,6 +25,7 @@ import {
   resumeArgsForProvider,
   type AgentSessionService,
 } from "../agent-sessions.js";
+import { expandHomePath } from "../utils.js";
 
 type PtyRoutesDeps = {
   fastify: FastifyInstance;
@@ -152,14 +153,14 @@ export function registerPtyRoutes(deps: PtyRoutesDeps): void {
     if (!provider) throw new Error("taskRef.provider is required");
     if (!taskId) throw new Error("taskRef.taskId is required");
 
-    const projectRoot = path.resolve(projectRootRaw);
+    const projectRoot = path.resolve(expandHomePath(projectRootRaw));
     if (!(await worktrees.directoryExists(projectRoot))) {
       throw new Error(`taskRef.projectRoot not found: ${projectRoot}`);
     }
 
     let worktreePath: string | null = null;
     if (worktreePathRaw) {
-      worktreePath = path.resolve(worktreePathRaw);
+      worktreePath = path.resolve(expandHomePath(worktreePathRaw));
       if (!(await worktrees.directoryExists(worktreePath))) {
         throw new Error(`taskRef.worktreePath not found: ${worktreePath}`);
       }
@@ -236,6 +237,7 @@ export function registerPtyRoutes(deps: PtyRoutesDeps): void {
     const body = parseJsonBody(req.body);
     const agent = typeof body.agent === "string" ? body.agent.trim() : "";
     const worktree = typeof body.worktree === "string" ? body.worktree.trim() : "";
+    const rawProjectRoot = typeof body.projectRoot === "string" ? body.projectRoot.trim() : "";
     if (!agent) {
       reply.code(400);
       return { error: "agent is required" };
@@ -257,9 +259,9 @@ export function registerPtyRoutes(deps: PtyRoutesDeps): void {
     }
 
     const projectRoot = await worktrees.resolveProjectRoot(body.projectRoot);
-    if (body.projectRoot && !projectRoot) {
+    if (worktree === "__new__" && rawProjectRoot && !projectRoot) {
       reply.code(400);
-      return { error: `project directory not found: ${body.projectRoot}` };
+      return { error: `project directory is not a git repository: ${rawProjectRoot}` };
     }
 
     let cwd: string;
@@ -282,7 +284,7 @@ export function registerPtyRoutes(deps: PtyRoutesDeps): void {
         reply.code(400);
         return { error: "worktree path does not exist or is not a directory" };
       }
-      cwd = path.resolve(worktree);
+      cwd = path.resolve(expandHomePath(worktree));
     }
 
     const shell = process.env.AGMUX_SHELL ?? process.env.SHELL ?? "bash";
