@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "server",
+  "dolt_database": "agmux",
+  "project_id": "9f0c4e55-23fb-4a77-bbec-381db2b86a62"
+}
