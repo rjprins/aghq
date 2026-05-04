@@ -119,6 +119,73 @@ describe("route wiring", () => {
     await fastify.close();
   });
 
+  it("forwards live Claude/Codex renames to the attached PTY", async () => {
+    const fastify = Fastify();
+    const writes: Array<{ id: string; data: string }> = [];
+    const runtime = {
+      ptys: {
+        spawn: () => {},
+        list: () => [],
+        getSummary: (id: string) => (
+          id === "pty-1"
+            ? { id: "pty-1", status: "running", backend: "tmux", command: "tmux", args: [], cwd: null, createdAt: 0 }
+            : null
+        ),
+        kill: () => {},
+        write: (id: string, data: string) => writes.push({ id, data }),
+        resize: () => {},
+        updateName: (id: string, name: string) => (
+          id === "pty-1"
+            ? { id: "pty-1", name, status: "running", backend: "tmux", command: "tmux", args: [], cwd: null, createdAt: 0 }
+            : null
+        ),
+      },
+      readinessEngine: { registerAgent: () => {}, markBusy: () => {}, markExited: () => {}, markReady: () => {} },
+      listPtys: async () => [],
+      broadcastPtyList: async () => {},
+      trackLinkedSession: () => {},
+      getReadinessTrace: () => [],
+    } as any;
+    const store = {
+      upsertSession: () => {},
+      getPreference: () => ({}),
+      setPreference: () => {},
+      loadAllInputHistory: () => ({}),
+      saveInputHistory: () => {},
+    } as any;
+    const agentSessions = {
+      attachPtyToAgentSession: () => {},
+      upsertAgentSessionSummary: () => {},
+      renameAttachedSession: () => true,
+      attachedAgentSessionForPty: () => ({ provider: "codex", providerSessionId: "sess-1" }),
+    } as any;
+    const worktrees = {
+      resolveProjectRoot: async () => null,
+      createWorktreeFromBase: async () => "",
+      directoryExists: async () => true,
+      isKnownWorktreePath: () => true,
+    } as any;
+
+    registerPtyRoutes({
+      fastify,
+      store,
+      agentSessions,
+      runtime,
+      worktrees,
+      defaultBaseBranch: "main",
+      agmuxSession: "agmux",
+    });
+
+    const res = await fastify.inject({
+      method: "PUT",
+      url: "/api/ptys/pty-1/name",
+      payload: { name: "rename-marker" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(writes).toEqual([{ id: "pty-1", data: "/rename rename-marker\r" }]);
+    await fastify.close();
+  });
+
   it("serves /api/agent-sessions with merged list", async () => {
     const fastify = Fastify();
     const agentSessions = {

@@ -1,6 +1,6 @@
 import path from "node:path";
 import type { AgentProvider, AgentSessionCwdSource, AgentSessionSummary, PtySummary } from "../types.js";
-import type { AgentSessionRecord, SqliteStore } from "../persist/sqlite.js";
+import type { AgentSessionNameSource, AgentSessionRecord, SqliteStore } from "../persist/sqlite.js";
 import type { LogSessionDiscovery } from "../logSessions.js";
 import { projectRootFromCwdAny, worktreeFromCwdAny } from "../worktree.js";
 
@@ -39,6 +39,8 @@ export function agentSessionPublicId(provider: AgentProvider, providerSessionId:
 
 export type AgentSessionService = ReturnType<typeof createAgentSessionService>;
 
+type ResolvedAgentSessionSummary = AgentSessionSummary & { nameSource: AgentSessionNameSource };
+
 export function createAgentSessionService(deps: AgentSessionServiceDeps) {
   const { store, logSessionDiscovery } = deps;
   const agentSessionRefByPty = new Map<string, { provider: AgentProvider; providerSessionId: string }>();
@@ -51,7 +53,13 @@ export function createAgentSessionService(deps: AgentSessionServiceDeps) {
     return projectRootFromCwdAny(cwd);
   }
 
-  function mergeAgentSessions(base: AgentSessionSummary, next: AgentSessionSummary): AgentSessionSummary {
+  function nameSourcePriority(source: AgentSessionNameSource): number {
+    if (source === "user") return 3;
+    if (source === "provider") return 2;
+    return 1;
+  }
+
+  function mergeAgentSessions(base: ResolvedAgentSessionSummary, next: ResolvedAgentSessionSummary): ResolvedAgentSessionSummary {
     const chooseCwd =
       next.cwd != null &&
       (base.cwd == null ||
@@ -61,13 +69,19 @@ export function createAgentSessionService(deps: AgentSessionServiceDeps) {
 
     const cwd = chooseCwd ? next.cwd : base.cwd;
     const cwdSource = chooseCwd ? next.cwdSource : base.cwdSource;
+    const nextNameWins =
+      nameSourcePriority(next.nameSource) > nameSourcePriority(base.nameSource) ||
+      (nameSourcePriority(next.nameSource) === nameSourcePriority(base.nameSource) &&
+        next.lastSeenAt >= base.lastSeenAt);
+    const chosenName = nextNameWins ? next : base;
     const newer = next.lastSeenAt >= base.lastSeenAt ? next : base;
 
     return {
       id: agentSessionPublicId(base.provider, base.providerSessionId),
       provider: base.provider,
       providerSessionId: base.providerSessionId,
-      name: newer.name,
+      name: chosenName.name,
+      nameSource: chosenName.nameSource,
       command: newer.command,
       args: newer.args,
       cwd,
@@ -88,7 +102,7 @@ export function createAgentSessionService(deps: AgentSessionServiceDeps) {
     return normalized.length > 0 ? normalized : null;
   }
 
-  function toAgentSessionFromLog(summary: PtySummary): AgentSessionSummary | null {
+  function toAgentSessionFromLog(summary: PtySummary): ResolvedAgentSessionSummary | null {
     const fromId = /^log:(claude|codex|pi):/.exec(summary.id)?.[1] ?? null;
     const provider = normalizeAgentProvider(fromId ?? summary.command);
     if (!provider) return null;
@@ -100,6 +114,7 @@ export function createAgentSessionService(deps: AgentSessionServiceDeps) {
       provider,
       providerSessionId,
       name: summary.name || defaultAgentSessionName(provider, providerSessionId, cwd),
+      nameSource: summary.nameSource === "provider" ? "provider" : "derived",
       command: provider,
       args: resumeArgsForProvider(provider, providerSessionId),
       cwd,
@@ -112,7 +127,7 @@ export function createAgentSessionService(deps: AgentSessionServiceDeps) {
     };
   }
 
-  function toAgentSessionFromRecord(record: AgentSessionRecord): AgentSessionSummary | null {
+  function toAgentSessionFromRecord(record: AgentSessionRecord): ResolvedAgentSessionSummary | null {
     const provider = normalizeAgentProvider(record.provider);
     if (!provider) return null;
     const providerSessionId = record.providerSessionId.trim();
@@ -124,6 +139,7 @@ export function createAgentSessionService(deps: AgentSessionServiceDeps) {
       provider,
       providerSessionId,
       name: record.name || fallbackName,
+      nameSource: record.nameSource,
       command: record.command || provider,
       args: record.args.length > 0 ? record.args : resumeArgsForProvider(provider, providerSessionId),
       cwd,
@@ -136,7 +152,7 @@ export function createAgentSessionService(deps: AgentSessionServiceDeps) {
     };
   }
 
-  function toAgentSessionFromLegacySessionRow(summary: PtySummary): AgentSessionSummary | null {
+  function toAgentSessionFromLegacySessionRow(summary: PtySummary): ResolvedAgentSessionSummary | null {
     const fromId = /^log:(claude|codex|pi):/.exec(summary.id)?.[1] ?? null;
     const provider = normalizeAgentProvider(fromId ?? summary.command);
     if (!provider) return null;
@@ -148,6 +164,7 @@ export function createAgentSessionService(deps: AgentSessionServiceDeps) {
       provider,
       providerSessionId,
       name: summary.name || defaultAgentSessionName(provider, providerSessionId, cwd),
+      nameSource: "derived",
       command: provider,
       args: resumeArgsForProvider(provider, providerSessionId),
       cwd,
@@ -160,11 +177,20 @@ export function createAgentSessionService(deps: AgentSessionServiceDeps) {
     };
   }
 
-  function upsertAgentSessionSummary(summary: AgentSessionSummary): void {
+  function toPublicAgentSession(summary: ResolvedAgentSessionSummary): AgentSessionSummary {
+    const { nameSource: _nameSource, ...rest } = summary;
+    return rest;
+  }
+
+  function upsertAgentSessionSummary(
+    summary: AgentSessionSummary,
+    nameSource: AgentSessionNameSource = "derived",
+  ): void {
     store.upsertAgentSession({
       provider: summary.provider,
       providerSessionId: summary.providerSessionId,
       name: summary.name,
+      nameSource,
       command: summary.command,
       args: summary.args,
       cwd: summary.cwd,
@@ -176,17 +202,22 @@ export function createAgentSessionService(deps: AgentSessionServiceDeps) {
   }
 
   async function listAgentSessions(): Promise<AgentSessionSummary[]> {
-    const merged = new Map<string, AgentSessionSummary>();
-    const dbRows = store.listAgentSessions().map(toAgentSessionFromRecord).filter((x): x is AgentSessionSummary => x != null);
-    const legacyRows = store.listSessions(800).map(toAgentSessionFromLegacySessionRow).filter((x): x is AgentSessionSummary => x != null);
-    const discovered = (await logSessionDiscovery.list()).map(toAgentSessionFromLog).filter((x): x is AgentSessionSummary => x != null);
+    const merged = new Map<string, ResolvedAgentSessionSummary>();
+    const dbRows = store.listAgentSessions().map(toAgentSessionFromRecord).filter((x): x is ResolvedAgentSessionSummary => x != null);
+    const legacyRows = store.listSessions(800).map(toAgentSessionFromLegacySessionRow).filter((x): x is ResolvedAgentSessionSummary => x != null);
+    const discovered = (await logSessionDiscovery.list()).map(toAgentSessionFromLog).filter((x): x is ResolvedAgentSessionSummary => x != null);
 
     for (const session of [...dbRows, ...legacyRows, ...discovered]) {
       const key = `${session.provider}:${session.providerSessionId}`;
       const prev = merged.get(key);
       merged.set(key, prev ? mergeAgentSessions(prev, session) : session);
     }
-    return [...merged.values()].sort((a, b) => b.lastSeenAt - a.lastSeenAt);
+
+    const sessions = [...merged.values()].sort((a, b) => b.lastSeenAt - a.lastSeenAt);
+    for (const session of sessions) {
+      upsertAgentSessionSummary(session, session.nameSource);
+    }
+    return sessions.map(toPublicAgentSession);
   }
 
   async function findAgentSessionSummary(provider: AgentProvider, providerSessionId: string): Promise<AgentSessionSummary | null> {
@@ -218,7 +249,7 @@ export function createAgentSessionService(deps: AgentSessionServiceDeps) {
       lastSeenAt: ts,
       lastRestoredAt: persisted?.lastRestoredAt ?? null,
     };
-    upsertAgentSessionSummary(merged);
+    upsertAgentSessionSummary(merged, persisted?.nameSource ?? "derived");
   }
 
   function attachPtyToAgentSession(ptyId: string, provider: AgentProvider, providerSessionId: string): void {
@@ -253,7 +284,7 @@ export function createAgentSessionService(deps: AgentSessionServiceDeps) {
       createdAt: persisted?.createdAt ?? ts,
       lastSeenAt: Math.max(persisted?.lastSeenAt ?? 0, ts),
       lastRestoredAt: persisted?.lastRestoredAt ?? null,
-    });
+    }, "user");
     return true;
   }
 

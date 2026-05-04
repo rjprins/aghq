@@ -129,6 +129,69 @@ describe("discoverInactiveLogSessions", () => {
     expect(sessions[0]?.id).toBe("log:claude:fallback-name");
     expect(sessions[0]?.cwd).toBe("/tmp/project-fallback");
   });
+
+  test("prefers explicit provider session names from codex index and claude rename metadata", async () => {
+    tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "agmux-logs-"));
+    const claudeDir = path.join(tmpRoot, "claude");
+    const codexDir = path.join(tmpRoot, "codex");
+
+    await writeJsonl(path.join(claudeDir, "projects", "a", "claude-renamed.jsonl"), [
+      { type: "system", sessionId: "claude-rename", cwd: "/tmp/claude-project" },
+      { type: "user", sessionId: "claude-rename", message: { content: [{ type: "text", text: "Implement the first pass of this feature" }] } },
+      { type: "custom-title", customTitle: "claude-renamed", sessionId: "claude-rename" },
+    ]);
+
+    await writeJsonl(path.join(codexDir, "sessions", "2026", "04", "codex-renamed.jsonl"), [
+      { type: "session_meta", payload: { id: "codex-rename", source: "cli", cwd: "/tmp/codex-project" } },
+      { type: "response_item", payload: { role: "user", content: [{ type: "input_text", text: "Implement transcript-backed history" }] } },
+    ]);
+    await writeJsonl(path.join(codexDir, "session_index.jsonl"), [
+      { id: "codex-rename", thread_name: "codex-renamed", updated_at: "2026-04-10T14:01:05.000Z" },
+    ]);
+
+    const sessions = discoverInactiveLogSessions({
+      claudeConfigDir: claudeDir,
+      codexHomeDir: codexDir,
+      piHomeDir: path.join(tmpRoot, "pi"),
+      scanLimit: 50,
+    });
+
+    expect(sessions.find((s) => s.id === "log:claude:claude-rename")?.name).toBe("claude-renamed");
+    expect(sessions.find((s) => s.id === "log:claude:claude-rename")?.nameSource).toBe("provider");
+    expect(sessions.find((s) => s.id === "log:codex:codex-rename")?.name).toBe("codex-renamed");
+    expect(sessions.find((s) => s.id === "log:codex:codex-rename")?.nameSource).toBe("provider");
+  });
+
+  test("uses active claude session metadata name when transcript has no rename event", async () => {
+    tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "agmux-logs-"));
+    const claudeDir = path.join(tmpRoot, "claude");
+
+    await writeJsonl(path.join(claudeDir, "projects", "a", "claude-active.jsonl"), [
+      { type: "system", sessionId: "claude-active", cwd: "/tmp/claude-active-project" },
+      { type: "user", sessionId: "claude-active", message: { content: [{ type: "text", text: "Implement something without a rename event" }] } },
+    ]);
+    await fs.mkdir(path.join(claudeDir, "sessions"), { recursive: true });
+    await fs.writeFile(
+      path.join(claudeDir, "sessions", "1234.json"),
+      JSON.stringify({
+        pid: 1234,
+        sessionId: "claude-active",
+        cwd: "/tmp/claude-active-project",
+        name: "claude-active-name",
+      }),
+      "utf8",
+    );
+
+    const sessions = discoverInactiveLogSessions({
+      claudeConfigDir: claudeDir,
+      codexHomeDir: path.join(tmpRoot, "codex"),
+      piHomeDir: path.join(tmpRoot, "pi"),
+      scanLimit: 50,
+    });
+
+    expect(sessions.find((s) => s.id === "log:claude:claude-active")?.name).toBe("claude-active-name");
+    expect(sessions.find((s) => s.id === "log:claude:claude-active")?.nameSource).toBe("provider");
+  });
 });
 
 describe("LogSessionDiscovery cache", () => {

@@ -23,6 +23,7 @@ describe("SqliteStore agent_sessions", () => {
       provider: "codex",
       providerSessionId: "sess-1",
       name: "codex:repo",
+      nameSource: "derived",
       command: "codex",
       args: ["resume", "sess-1"],
       cwd: "/tmp/repo/.worktrees/a",
@@ -36,6 +37,7 @@ describe("SqliteStore agent_sessions", () => {
       provider: "codex",
       providerSessionId: "sess-1",
       name: "codex:repo",
+      nameSource: "provider",
       command: "codex",
       args: ["resume", "sess-1"],
       cwd: null,
@@ -49,6 +51,7 @@ describe("SqliteStore agent_sessions", () => {
     expect(row).not.toBeNull();
     expect(row?.cwd).toBe("/tmp/repo/.worktrees/a");
     expect(row?.cwdSource).toBe("runtime");
+    expect(row?.nameSource).toBe("provider");
     expect(row?.createdAt).toBe(900);
     expect(row?.lastSeenAt).toBe(3_000);
     expect(row?.lastRestoredAt).toBe(1_500);
@@ -63,6 +66,7 @@ describe("SqliteStore agent_sessions", () => {
       provider: "claude",
       providerSessionId: "a",
       name: "claude:a",
+      nameSource: "derived",
       command: "claude",
       args: ["--resume", "a"],
       cwd: "/tmp/a",
@@ -75,6 +79,7 @@ describe("SqliteStore agent_sessions", () => {
       provider: "codex",
       providerSessionId: "b",
       name: "codex:b",
+      nameSource: "derived",
       command: "codex",
       args: ["resume", "b"],
       cwd: "/tmp/b",
@@ -87,5 +92,43 @@ describe("SqliteStore agent_sessions", () => {
     const rows = store.listAgentSessions();
     expect(rows.map((r) => `${r.provider}:${r.providerSessionId}`)).toEqual(["codex:b", "claude:a"]);
   });
-});
 
+  test("keeps manual user names over newer provider-imported names", async () => {
+    tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "agmux-agent-sessions-"));
+    const dbPath = path.join(tmpRoot, "agent.db");
+    const store = new SqliteStore(dbPath);
+
+    store.upsertAgentSession({
+      provider: "codex",
+      providerSessionId: "sess-2",
+      name: "Manual Name",
+      nameSource: "user",
+      command: "codex",
+      args: ["resume", "sess-2"],
+      cwd: "/tmp/repo",
+      cwdSource: "user",
+      createdAt: 1_000,
+      lastSeenAt: 2_000,
+      lastRestoredAt: null,
+    });
+
+    store.upsertAgentSession({
+      provider: "codex",
+      providerSessionId: "sess-2",
+      name: "Provider Rename",
+      nameSource: "provider",
+      command: "codex",
+      args: ["resume", "sess-2"],
+      cwd: "/tmp/repo",
+      cwdSource: "log",
+      createdAt: 1_000,
+      lastSeenAt: 9_000,
+      lastRestoredAt: null,
+    });
+
+    const row = store.getAgentSession("codex", "sess-2");
+    expect(row?.name).toBe("Manual Name");
+    expect(row?.nameSource).toBe("user");
+    expect(row?.lastSeenAt).toBe(9_000);
+  });
+});

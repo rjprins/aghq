@@ -594,6 +594,10 @@ export function registerPtyRoutes(deps: PtyRoutesDeps): void {
 
     store.upsertSession(updated);
     agentSessions.renameAttachedSession(id, rawName);
+    const attachedSession = agentSessions.attachedAgentSessionForPty(id);
+    if (updated.status === "running" && (attachedSession?.provider === "claude" || attachedSession?.provider === "codex")) {
+      runtime.ptys.write(id, `/rename ${rawName}\r`);
+    }
     await runtime.broadcastPtyList();
     return { ok: true };
   });

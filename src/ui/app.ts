@@ -1651,8 +1651,8 @@ type RefreshListOptions = {
   forceAgentSessions?: boolean;
 };
 
-const AGENT_SESSIONS_REFRESH_ACTIVE_MS = 300_000;
-const AGENT_SESSIONS_REFRESH_IDLE_MS = 300_000;
+const AGENT_SESSIONS_REFRESH_ACTIVE_MS = 5_000;
+const AGENT_SESSIONS_REFRESH_IDLE_MS = 60_000;
 const AGENT_SESSIONS_REFRESH_HIDDEN_MS = 300_000;
 
 let listRefreshInFlight = false;
@@ -2372,6 +2372,20 @@ function attachedAgentSessionForPty(ptyId: string): { provider: string; provider
   return { provider, providerSessionId };
 }
 
+function resolvedAgentSessionNameForPty(ptyId: string): string | null {
+  const sessionRef = attachedAgentSessionForPty(ptyId);
+  if (!sessionRef) return null;
+  const match = agentSessions.find(
+    (session) => session.provider === sessionRef.provider && session.providerSessionId === sessionRef.providerSessionId,
+  );
+  const name = compactWhitespace(match?.name ?? "");
+  return name || null;
+}
+
+function displayRunningPtyName(pty: PtySummary): string {
+  return resolvedAgentSessionNameForPty(pty.id) ?? displaySessionName(pty);
+}
+
 function clearProviderHistoryRefreshTimer(ptyId: string): void {
   const timer = ptyProviderHistoryRefreshTimers.get(ptyId);
   if (timer == null) return;
@@ -2633,7 +2647,7 @@ async function renamePty(ptyId: string): Promise<void> {
     return;
   }
 
-  const currentName = displaySessionName(pty);
+  const currentName = displayRunningPtyName(pty);
   const exampleName = BOT_NAMES.find((candidate) => candidate !== currentName) ?? BOT_NAMES[0] ?? "Ada";
   const proposedName = window.prompt(`Name this session. Example: ${exampleName}`, currentName);
   if (proposedName == null) return;
@@ -3427,7 +3441,7 @@ loadCollapsedSet(ARCHIVED_WORKTREES_COLLAPSED_KEY, collapsedArchivedWorktrees);
 let archivedSectionExpandedOverride = loadBooleanPreference(ARCHIVED_SECTION_EXPANDED_KEY);
 
 function buildRunningPtyItem(p: PtySummary): RunningPtyItem {
-  const name = displaySessionName(p);
+  const name = displayRunningPtyName(p);
   const title = (ptyTitles.get(p.id) ?? "").trim();
   const activeProcess = compactWhitespace(p.activeProcess ?? "");
   const inferredAgent = inferAgentFromRecentInput(p.id);
@@ -3437,7 +3451,7 @@ function buildRunningPtyItem(p: PtySummary): RunningPtyItem {
     : (
       inferredAgent && isGenericRuntimeProcess(activeProcess)
         ? inferredAgent
-        : ((activeProcess && !isShellProcess(activeProcess) ? activeProcess : "") || activeProcess || title || p.name)
+        : ((activeProcess && !isShellProcess(activeProcess) ? activeProcess : "") || activeProcess || title || name)
     ));
   const inputPreview = ptyLastInput.get(p.id) ?? "";
   const readyInfo = ptyReady.get(p.id) ?? readinessFromSummary(p);
@@ -5001,8 +5015,8 @@ void (async () => {
   }
 })();
 
-const LIST_REFRESH_CONNECTED_ACTIVE_MS = 300_000;
-const LIST_REFRESH_CONNECTED_IDLE_MS = 300_000;
+const LIST_REFRESH_CONNECTED_ACTIVE_MS = 5_000;
+const LIST_REFRESH_CONNECTED_IDLE_MS = 60_000;
 const LIST_REFRESH_DISCONNECTED_ACTIVE_MS = 5000;
 const LIST_REFRESH_DISCONNECTED_IDLE_MS = 15_000;
 const LIST_REFRESH_HIDDEN_MS = 60_000;

@@ -29,6 +29,11 @@ type FileCandidate = {
   birthtimeMs: number;
 };
 
+type SessionNameRecord = {
+  name: string;
+  updatedAtMs: number;
+};
+
 function homeDir(): string {
   return process.env.HOME || process.env.USERPROFILE || "";
 }
@@ -76,6 +81,24 @@ function readLogHead(logPath: string, byteLimit = LOG_HEAD_BYTE_LIMIT): string {
   }
 }
 
+function readLogTail(logPath: string, byteLimit = LOG_HEAD_BYTE_LIMIT): string {
+  try {
+    const stats = fs.statSync(logPath);
+    if (!stats.isFile()) return "";
+    const size = Math.max(0, stats.size);
+    if (size === 0) return "";
+    const start = Math.max(0, size - byteLimit);
+    const fd = fs.openSync(logPath, "r");
+    const buffer = Buffer.alloc(size - start);
+    const bytes = fs.readSync(fd, buffer, 0, size - start, start);
+    fs.closeSync(fd);
+    if (bytes <= 0) return "";
+    return buffer.slice(0, bytes).toString("utf8");
+  } catch {
+    return "";
+  }
+}
+
 async function readLogHeadAsync(logPath: string, byteLimit = LOG_HEAD_BYTE_LIMIT): Promise<string> {
   let fd: fs.promises.FileHandle | null = null;
   try {
@@ -88,6 +111,27 @@ async function readLogHeadAsync(logPath: string, byteLimit = LOG_HEAD_BYTE_LIMIT
     return "";
   } finally {
     await fd?.close().catch(() => {});
+  }
+}
+
+async function readLogTailAsync(logPath: string, byteLimit = LOG_HEAD_BYTE_LIMIT): Promise<string> {
+  try {
+    const stats = await fs.promises.stat(logPath);
+    if (!stats.isFile()) return "";
+    const size = Math.max(0, stats.size);
+    if (size === 0) return "";
+    const start = Math.max(0, size - byteLimit);
+    const fd = await fs.promises.open(logPath, "r");
+    try {
+      const buffer = Buffer.alloc(size - start);
+      const { bytesRead } = await fd.read(buffer, 0, size - start, start);
+      if (bytesRead <= 0) return "";
+      return buffer.slice(0, bytesRead).toString("utf8");
+    } finally {
+      await fd.close().catch(() => {});
+    }
+  } catch {
+    return "";
   }
 }
 
@@ -124,6 +168,43 @@ function parseLogHeadEntries(
   return [];
 }
 
+function parseLogTailEntries(
+  logPath: string,
+  initialLimit = LOG_HEAD_BYTE_LIMIT,
+  maxLimit = LOG_HEAD_MAX_LIMIT,
+): Array<Record<string, unknown>> {
+  let byteLimit = initialLimit;
+  while (byteLimit <= maxLimit) {
+    const tail = readLogTail(logPath, byteLimit);
+    if (!tail) return [];
+    const truncated = (() => {
+      try {
+        return fs.statSync(logPath).size > byteLimit;
+      } catch {
+        return false;
+      }
+    })();
+
+    const lines = tail.split("\n");
+    const entries: Array<Record<string, unknown>> = [];
+    let startIndex = 0;
+    if (truncated && lines.length > 1) startIndex = 1; // ignore potentially truncated leading line
+    for (let i = startIndex; i < lines.length; i += 1) {
+      const line = lines[i]?.trim() ?? "";
+      if (!line) continue;
+      const parsed = safeParseJson(line);
+      if (parsed) entries.push(parsed);
+    }
+    if (entries.length > 0) return entries;
+    if (byteLimit < maxLimit) {
+      byteLimit = Math.min(byteLimit * 4, maxLimit);
+      continue;
+    }
+    return [];
+  }
+  return [];
+}
+
 async function parseLogHeadEntriesAsync(
   logPath: string,
   initialLimit = LOG_HEAD_BYTE_LIMIT,
@@ -153,6 +234,37 @@ async function parseLogHeadEntriesAsync(
       continue;
     }
     return entries;
+  }
+  return [];
+}
+
+async function parseLogTailEntriesAsync(
+  logPath: string,
+  initialLimit = LOG_HEAD_BYTE_LIMIT,
+  maxLimit = LOG_HEAD_MAX_LIMIT,
+): Promise<Array<Record<string, unknown>>> {
+  let byteLimit = initialLimit;
+  while (byteLimit <= maxLimit) {
+    const tail = await readLogTailAsync(logPath, byteLimit);
+    if (!tail) return [];
+    const truncated = await fs.promises.stat(logPath).then((stats) => stats.size > byteLimit).catch(() => false);
+
+    const lines = tail.split("\n");
+    const entries: Array<Record<string, unknown>> = [];
+    let startIndex = 0;
+    if (truncated && lines.length > 1) startIndex = 1; // ignore potentially truncated leading line
+    for (let i = startIndex; i < lines.length; i += 1) {
+      const line = lines[i]?.trim() ?? "";
+      if (!line) continue;
+      const parsed = safeParseJson(line);
+      if (parsed) entries.push(parsed);
+    }
+    if (entries.length > 0) return entries;
+    if (byteLimit < maxLimit) {
+      byteLimit = Math.min(byteLimit * 4, maxLimit);
+      continue;
+    }
+    return [];
   }
   return [];
 }
@@ -402,10 +514,169 @@ function resumeArgsForSource(source: LogSource, sessionId: string): string[] {
   return ["resume", sessionId];
 }
 
+function putSessionNameRecord(
+  target: Map<string, SessionNameRecord>,
+  sessionId: string,
+  name: string,
+  updatedAtMs: number,
+): void {
+  const normalizedId = sessionId.trim();
+  const normalizedName = name.trim();
+  if (!normalizedId || !normalizedName) return;
+  const prev = target.get(normalizedId);
+  if (!prev || updatedAtMs >= prev.updatedAtMs) {
+    target.set(normalizedId, { name: normalizedName, updatedAtMs });
+  }
+}
+
+function loadClaudeSessionNames(options: DiscoveryOptions): Map<string, SessionNameRecord> {
+  const result = new Map<string, SessionNameRecord>();
+  const sessionsDir = path.join(claudeConfigDir(options), "sessions");
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(sessionsDir, { withFileTypes: true });
+  } catch {
+    return result;
+  }
+
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
+    const filePath = path.join(sessionsDir, entry.name);
+    let raw: string;
+    try {
+      raw = fs.readFileSync(filePath, "utf8");
+    } catch {
+      continue;
+    }
+    const parsed = safeParseJson(raw.trim());
+    const sessionId = typeof parsed?.sessionId === "string" ? parsed.sessionId.trim() : "";
+    const name = typeof parsed?.name === "string" ? parsed.name.trim() : "";
+    if (!sessionId || !name) continue;
+    let updatedAtMs = 0;
+    try {
+      updatedAtMs = fs.statSync(filePath).mtimeMs || 0;
+    } catch {
+      // ignore
+    }
+    putSessionNameRecord(result, sessionId, name, updatedAtMs);
+  }
+  return result;
+}
+
+async function loadClaudeSessionNamesAsync(options: DiscoveryOptions): Promise<Map<string, SessionNameRecord>> {
+  const result = new Map<string, SessionNameRecord>();
+  const sessionsDir = path.join(claudeConfigDir(options), "sessions");
+  let entries: fs.Dirent[];
+  try {
+    entries = await fs.promises.readdir(sessionsDir, { withFileTypes: true });
+  } catch {
+    return result;
+  }
+
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
+    const filePath = path.join(sessionsDir, entry.name);
+    let raw: string;
+    try {
+      raw = await fs.promises.readFile(filePath, "utf8");
+    } catch {
+      continue;
+    }
+    const parsed = safeParseJson(raw.trim());
+    const sessionId = typeof parsed?.sessionId === "string" ? parsed.sessionId.trim() : "";
+    const name = typeof parsed?.name === "string" ? parsed.name.trim() : "";
+    if (!sessionId || !name) continue;
+    let updatedAtMs = 0;
+    try {
+      updatedAtMs = (await fs.promises.stat(filePath)).mtimeMs || 0;
+    } catch {
+      // ignore
+    }
+    putSessionNameRecord(result, sessionId, name, updatedAtMs);
+  }
+  return result;
+}
+
+function loadCodexSessionNames(options: DiscoveryOptions): Map<string, SessionNameRecord> {
+  const result = new Map<string, SessionNameRecord>();
+  const indexPath = path.join(codexHomeDir(options), "session_index.jsonl");
+  let body: string;
+  try {
+    body = fs.readFileSync(indexPath, "utf8");
+  } catch {
+    return result;
+  }
+
+  for (const line of body.split("\n")) {
+    const parsed = safeParseJson(line.trim());
+    const sessionId = typeof parsed?.id === "string" ? parsed.id.trim() : "";
+    const name = typeof parsed?.thread_name === "string" ? parsed.thread_name.trim() : "";
+    if (!sessionId || !name) continue;
+    putSessionNameRecord(result, sessionId, name, parseTimestampMs(parsed?.updated_at) ?? 0);
+  }
+  return result;
+}
+
+async function loadCodexSessionNamesAsync(options: DiscoveryOptions): Promise<Map<string, SessionNameRecord>> {
+  const result = new Map<string, SessionNameRecord>();
+  const indexPath = path.join(codexHomeDir(options), "session_index.jsonl");
+  let body: string;
+  try {
+    body = await fs.promises.readFile(indexPath, "utf8");
+  } catch {
+    return result;
+  }
+
+  for (const line of body.split("\n")) {
+    const parsed = safeParseJson(line.trim());
+    const sessionId = typeof parsed?.id === "string" ? parsed.id.trim() : "";
+    const name = typeof parsed?.thread_name === "string" ? parsed.thread_name.trim() : "";
+    if (!sessionId || !name) continue;
+    putSessionNameRecord(result, sessionId, name, parseTimestampMs(parsed?.updated_at) ?? 0);
+  }
+  return result;
+}
+
+function extractClaudeCustomName(logPath: string, sessionId: string): string | null {
+  const entries = parseLogTailEntries(logPath);
+  for (let i = entries.length - 1; i >= 0; i -= 1) {
+    const entry = entries[i];
+    if (!entry) continue;
+    const entrySessionId = getSessionIdFromEntry(entry);
+    if (entrySessionId && entrySessionId !== sessionId) continue;
+    if (entry.type === "custom-title" && typeof entry.customTitle === "string" && entry.customTitle.trim()) {
+      return entry.customTitle.trim();
+    }
+    if (entry.type === "agent-name" && typeof entry.agentName === "string" && entry.agentName.trim()) {
+      return entry.agentName.trim();
+    }
+  }
+  return null;
+}
+
+async function extractClaudeCustomNameAsync(logPath: string, sessionId: string): Promise<string | null> {
+  const entries = await parseLogTailEntriesAsync(logPath);
+  for (let i = entries.length - 1; i >= 0; i -= 1) {
+    const entry = entries[i];
+    if (!entry) continue;
+    const entrySessionId = getSessionIdFromEntry(entry);
+    if (entrySessionId && entrySessionId !== sessionId) continue;
+    if (entry.type === "custom-title" && typeof entry.customTitle === "string" && entry.customTitle.trim()) {
+      return entry.customTitle.trim();
+    }
+    if (entry.type === "agent-name" && typeof entry.agentName === "string" && entry.agentName.trim()) {
+      return entry.agentName.trim();
+    }
+  }
+  return null;
+}
+
 export function discoverInactiveLogSessions(options: DiscoveryOptions = {}): PtySummary[] {
   if (options.enabled === false) return [];
   const scanLimit = Math.max(1, Math.floor(options.scanLimit ?? 500));
   const candidates: FileCandidate[] = [];
+  const claudeSessionNames = loadClaudeSessionNames(options);
+  const codexSessionNames = loadCodexSessionNames(options);
 
   for (const root of getSearchRoots(options)) {
     for (const logPath of scanDirForJsonl(root.dir, root.maxDepth)) {
@@ -439,9 +710,15 @@ export function discoverInactiveLogSessions(options: DiscoveryOptions = {}): Pty
     const projectPath = extractProjectPath(entries);
     const fallbackName = derivedSessionId.slice(0, 8) || "session";
     const promptName = extractFirstUserPrompt(entries);
+    const explicitName = candidate.source === "claude"
+      ? (extractClaudeCustomName(candidate.logPath, derivedSessionId) ?? claudeSessionNames.get(derivedSessionId)?.name ?? null)
+      : candidate.source === "codex"
+        ? (codexSessionNames.get(derivedSessionId)?.name ?? null)
+        : null;
     const summary: PtySummary = {
       id: buildStableId(candidate.source, derivedSessionId, candidate.logPath),
-      name: promptName ?? `${candidate.source}:${leafOrDefault(projectPath, fallbackName)}`,
+      name: explicitName ?? promptName ?? `${candidate.source}:${leafOrDefault(projectPath, fallbackName)}`,
+      nameSource: explicitName ? "provider" : "derived",
       backend: "tmux",
       command: candidate.source,
       args: resumeArgsForSource(candidate.source, derivedSessionId),
@@ -468,6 +745,10 @@ export async function discoverInactiveLogSessionsAsync(options: DiscoveryOptions
   if (options.enabled === false) return [];
   const scanLimit = Math.max(1, Math.floor(options.scanLimit ?? 500));
   const candidates: FileCandidate[] = [];
+  const [claudeSessionNames, codexSessionNames] = await Promise.all([
+    loadClaudeSessionNamesAsync(options),
+    loadCodexSessionNamesAsync(options),
+  ]);
 
   for (const root of getSearchRoots(options)) {
     for (const logPath of await scanDirForJsonlAsync(root.dir, root.maxDepth)) {
@@ -501,9 +782,15 @@ export async function discoverInactiveLogSessionsAsync(options: DiscoveryOptions
     const projectPath = extractProjectPath(entries);
     const fallbackName = derivedSessionId.slice(0, 8) || "session";
     const promptName = extractFirstUserPrompt(entries);
+    const explicitName = candidate.source === "claude"
+      ? (await extractClaudeCustomNameAsync(candidate.logPath, derivedSessionId) ?? claudeSessionNames.get(derivedSessionId)?.name ?? null)
+      : candidate.source === "codex"
+        ? (codexSessionNames.get(derivedSessionId)?.name ?? null)
+        : null;
     const summary: PtySummary = {
       id: buildStableId(candidate.source, derivedSessionId, candidate.logPath),
-      name: promptName ?? `${candidate.source}:${leafOrDefault(projectPath, fallbackName)}`,
+      name: explicitName ?? promptName ?? `${candidate.source}:${leafOrDefault(projectPath, fallbackName)}`,
+      nameSource: explicitName ? "provider" : "derived",
       backend: "tmux",
       command: candidate.source,
       args: resumeArgsForSource(candidate.source, derivedSessionId),

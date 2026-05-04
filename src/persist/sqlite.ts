@@ -3,6 +3,8 @@ import fs from "node:fs";
 import path from "node:path";
 import type { AgentSessionCwdSource, PtySummary, SessionTaskAssignment, SessionTaskRef } from "../types.js";
 
+export type AgentSessionNameSource = "derived" | "provider" | "user";
+
 export type PersistedEvent = {
   sessionId: string;
   ts: number;
@@ -25,6 +27,7 @@ export type AgentSessionRecord = {
   provider: string;
   providerSessionId: string;
   name: string;
+  nameSource: AgentSessionNameSource;
   command: string;
   args: string[];
   cwd: string | null;
@@ -103,6 +106,7 @@ export class SqliteStore {
         provider text not null,
         provider_session_id text not null,
         name text not null,
+        name_source text not null default 'derived',
         command text not null,
         args_json text not null,
         cwd text,
@@ -158,6 +162,9 @@ export class SqliteStore {
 
     const agentCols = this.db.prepare(`pragma table_info(agent_sessions);`).all() as Array<{ name: string }>;
     const haveAgent = new Set(agentCols.map((c) => c.name));
+    if (!haveAgent.has("name_source")) {
+      this.db.exec(`alter table agent_sessions add column name_source text not null default 'derived';`);
+    }
     if (!haveAgent.has("cwd_source")) {
       this.db.exec(`alter table agent_sessions add column cwd_source text not null default 'log';`);
     }
@@ -495,7 +502,7 @@ export class SqliteStore {
 
   getAgentSession(provider: string, providerSessionId: string): AgentSessionRecord | null {
     const row = this.db.prepare(`
-      select provider, provider_session_id, name, command, args_json, cwd, cwd_source, created_at, last_seen_at, last_restored_at
+      select provider, provider_session_id, name, name_source, command, args_json, cwd, cwd_source, created_at, last_seen_at, last_restored_at
       from agent_sessions
       where provider = ? and provider_session_id = ?;
     `).get(provider, providerSessionId) as
@@ -503,6 +510,7 @@ export class SqliteStore {
           provider: string;
           provider_session_id: string;
           name: string;
+          name_source: string | null;
           command: string;
           args_json: string;
           cwd: string | null;
@@ -517,6 +525,7 @@ export class SqliteStore {
       provider: row.provider,
       providerSessionId: row.provider_session_id,
       name: row.name,
+      nameSource: this.parseAgentNameSource(row.name_source),
       command: row.command,
       args: this.parseArgsJson(row.args_json),
       cwd: row.cwd,
@@ -529,7 +538,7 @@ export class SqliteStore {
 
   listAgentSessions(limit = 500): AgentSessionRecord[] {
     const rows = this.db.prepare(`
-      select provider, provider_session_id, name, command, args_json, cwd, cwd_source, created_at, last_seen_at, last_restored_at
+      select provider, provider_session_id, name, name_source, command, args_json, cwd, cwd_source, created_at, last_seen_at, last_restored_at
       from agent_sessions
       order by last_seen_at desc
       limit ?;
@@ -537,6 +546,7 @@ export class SqliteStore {
       provider: string;
       provider_session_id: string;
       name: string;
+      name_source: string | null;
       command: string;
       args_json: string;
       cwd: string | null;
@@ -550,6 +560,7 @@ export class SqliteStore {
       provider: row.provider,
       providerSessionId: row.provider_session_id,
       name: row.name,
+      nameSource: this.parseAgentNameSource(row.name_source),
       command: row.command,
       args: this.parseArgsJson(row.args_json),
       cwd: row.cwd,
@@ -563,12 +574,35 @@ export class SqliteStore {
   upsertAgentSession(record: AgentSessionRecord): void {
     this.db.prepare(`
       insert into agent_sessions (
-        provider, provider_session_id, name, command, args_json, cwd, cwd_source, created_at, last_seen_at, last_restored_at
+        provider, provider_session_id, name, name_source, command, args_json, cwd, cwd_source, created_at, last_seen_at, last_restored_at
       ) values (
-        @provider, @provider_session_id, @name, @command, @args_json, @cwd, @cwd_source, @created_at, @last_seen_at, @last_restored_at
+        @provider, @provider_session_id, @name, @name_source, @command, @args_json, @cwd, @cwd_source, @created_at, @last_seen_at, @last_restored_at
       )
       on conflict(provider, provider_session_id) do update set
-        name=excluded.name,
+        name=case
+          when
+            (case excluded.name_source when 'user' then 3 when 'provider' then 2 else 1 end) >
+            (case agent_sessions.name_source when 'user' then 3 when 'provider' then 2 else 1 end)
+            or (
+              (case excluded.name_source when 'user' then 3 when 'provider' then 2 else 1 end) =
+              (case agent_sessions.name_source when 'user' then 3 when 'provider' then 2 else 1 end)
+              and excluded.last_seen_at >= agent_sessions.last_seen_at
+            )
+          then excluded.name
+          else agent_sessions.name
+        end,
+        name_source=case
+          when
+            (case excluded.name_source when 'user' then 3 when 'provider' then 2 else 1 end) >
+            (case agent_sessions.name_source when 'user' then 3 when 'provider' then 2 else 1 end)
+            or (
+              (case excluded.name_source when 'user' then 3 when 'provider' then 2 else 1 end) =
+              (case agent_sessions.name_source when 'user' then 3 when 'provider' then 2 else 1 end)
+              and excluded.last_seen_at >= agent_sessions.last_seen_at
+            )
+          then excluded.name_source
+          else agent_sessions.name_source
+        end,
         command=excluded.command,
         args_json=excluded.args_json,
         cwd=coalesce(excluded.cwd, agent_sessions.cwd),
@@ -580,6 +614,7 @@ export class SqliteStore {
       provider: record.provider,
       provider_session_id: record.providerSessionId,
       name: record.name,
+      name_source: record.nameSource,
       command: record.command,
       args_json: JSON.stringify(record.args),
       cwd: record.cwd,
@@ -593,6 +628,11 @@ export class SqliteStore {
   private parseAgentCwdSource(value: string | null): AgentSessionCwdSource {
     if (value === "runtime" || value === "db" || value === "log" || value === "user") return value;
     return "db";
+  }
+
+  private parseAgentNameSource(value: string | null): AgentSessionNameSource {
+    if (value === "user" || value === "provider" || value === "derived") return value;
+    return "derived";
   }
 
   private parseArgsJson(raw: string): string[] {

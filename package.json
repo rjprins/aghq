@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "description": "Local web UI for managing agent terminal sessions with live streaming, triggers, and readiness detection",
   "main": "dist/server.js",
+  "bin": {
+    "agmux-mcp": "dist/mcp/server.js"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/rjprins/agmux.git"
@@ -16,6 +19,10 @@
     "app": "node scripts/build-ui.mjs && node --import tsx src/server.ts",
     "app:watch": "node scripts/build-ui.mjs && node --watch --import tsx src/server.ts",
     "dev": "node scripts/dev.mjs",
+    "mcp": "node --import tsx src/mcp/server.ts",
+    "mcp:install": "node scripts/install-mcp.mjs all",
+    "mcp:install:codex": "node scripts/install-mcp.mjs codex",
+    "mcp:install:claude": "node scripts/install-mcp.mjs claude",
     "ui:build": "node scripts/build-ui.mjs",
     "build": "tsc -p tsconfig.json && node scripts/build-ui.mjs",
     "start": "node dist/server.js",
@@ -36,6 +43,7 @@
   "license": "MIT",
   "type": "module",
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@xterm/addon-fit": "^0.10.0",
     "@xterm/addon-web-links": "^0.11.0",
     "@xterm/xterm": "^5.5.0",
@@ -46,7 +54,8 @@
     "node-pty": "^1.1.0",
     "preact": "^10.28.3",
     "strip-ansi": "^7.1.2",
-    "ws": "^8.19.0"
+    "ws": "^8.19.0",
+    "zod": "^4.4.2"
   },
   "devDependencies": {
     "@playwright/test": "^1.58.2",

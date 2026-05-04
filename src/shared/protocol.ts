@@ -20,6 +20,7 @@ export type SessionTaskAssignment = SessionTaskRef & {
 export type PtySummary = {
   id: PtyId;
   name: string;
+  nameSource?: "derived" | "provider" | "user";
   backend: "tmux";
   tmuxSession?: string | null;
   tmuxServer?: TmuxServer | null;

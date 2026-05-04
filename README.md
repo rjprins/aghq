@@ -69,6 +69,7 @@ Use the current UI API surface directly for agents:
 
 - HTTP + WS reference: [docs/agent-api-reference.md](docs/agent-api-reference.md)
 - OpenAPI spec: [docs/openapi.json](docs/openapi.json)
+- MCP server: [docs/mcp.md](docs/mcp.md)
 
 ## Claude / Codex readiness
 
