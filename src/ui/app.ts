@@ -1011,7 +1011,7 @@ function createTermState(ptyId: string): TermState {
   };
 
   const copySelectionToClipboard = () => {
-    const sel = term.getSelection().replace(/\u00a0/g, " ").trimEnd();
+    const sel = cleanupCopiedTerminalText(term.getSelection());
     if (!sel) {
       lastCopiedSelection = "";
       pendingCopiedSelection = "";
@@ -1780,6 +1780,15 @@ function shortId(ptyId: string): string {
 
 function compactWhitespace(s: string): string {
   return s.replace(/\s+/g, " ").trim();
+}
+
+function cleanupCopiedTerminalText(text: string): string {
+  return text
+    .replace(/\u00a0/g, " ")
+    .split(/\r?\n/)
+    .map((line) => line.replace(/^ {2}/, "").replace(/[ \t]+$/g, ""))
+    .join("\n")
+    .trimEnd();
 }
 
 const AGENT_CHOICES = ["claude", "codex", "shell"];
@@ -5067,6 +5076,7 @@ function dumpBuffer(st: TermState, maxLines = 120): string {
 
 (window as any).__agmux = {
   activePtyId: () => activePtyId,
+  cleanupCopiedTerminalText,
   dumpActive: () => {
     if (!activePtyId) return "";
     const st = terms.get(activePtyId);

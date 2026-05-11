@@ -208,6 +208,18 @@ test.beforeEach(async ({ page }) => {
   await ensureNoRunningPtys(page, token);
 });
 
+test("normalizes copied terminal selection whitespace", async ({ page }) => {
+  await page.goto("/?nosup=1");
+
+  const normalized = await page.evaluate(() => {
+    const cleanup = (window as any).__agmux?.cleanupCopiedTerminalText;
+    if (typeof cleanup !== "function") return null;
+    return cleanup("  alpha   \n    beta\t  \n  \t  \n one-space   \n  omega\u00a0\u00a0");
+  });
+
+  expect(normalized).toBe("alpha\n  beta\n\n one-space\nomega");
+});
+
 test("can create a PTY and fires proceed trigger", async ({ page }) => {
   await page.goto("/?nosup=1");
   await page.getByRole("button", { name: "New" }).click();
