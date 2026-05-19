@@ -207,8 +207,21 @@ function ptyStyle(color: string): Record<string, string> {
   return { "--pty-color": color } as Record<string, string>;
 }
 
-let draggingPtyId: string | null = null;
-let draggingGroupKey: string | null = null;
+type PointerDragState = {
+  sourcePtyId: string;
+  groupKey: string;
+  pointerId: number;
+  startX: number;
+  startY: number;
+  active: boolean;
+  targetPtyId: string | null;
+  placement: PtyDragPlacement;
+};
+
+let pointerDragState: PointerDragState | null = null;
+let suppressClickUntil = 0;
+
+const DRAG_START_DISTANCE = 4;
 
 function clearDragTargets(): void {
   document.querySelectorAll(".pty-item.drag-over-before, .pty-item.drag-over-after").forEach((el) => {
@@ -217,22 +230,33 @@ function clearDragTargets(): void {
 }
 
 function clearDragState(): void {
-  draggingPtyId = null;
-  draggingGroupKey = null;
+  pointerDragState = null;
   clearDragTargets();
   document.querySelectorAll(".pty-item.dragging").forEach((el) => {
     el.classList.remove("dragging");
   });
 }
 
-function dragPlacement(ev: DragEvent, el: HTMLElement): PtyDragPlacement {
+function dragPlacement(clientY: number, el: HTMLElement): PtyDragPlacement {
   const rect = el.getBoundingClientRect();
-  return ev.clientY >= rect.top + (rect.height / 2) ? "after" : "before";
+  return clientY >= rect.top + (rect.height / 2) ? "after" : "before";
 }
 
 function markDropTarget(el: HTMLElement, placement: PtyDragPlacement): void {
   clearDragTargets();
   el.classList.add(placement === "after" ? "drag-over-after" : "drag-over-before");
+}
+
+function isInteractivePointerTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) return false;
+  return Boolean(target.closest("button, a, input, textarea, select, [contenteditable='true']"));
+}
+
+function runningPtyRowFromPoint(clientX: number, clientY: number): HTMLElement | null {
+  const el = document.elementFromPoint(clientX, clientY);
+  const row = el instanceof Element ? el.closest<HTMLElement>(".pty-item[data-pty-id]") : null;
+  if (!row || row.classList.contains("inactive")) return null;
+  return row;
 }
 
 function PtyItemRow(
@@ -241,38 +265,79 @@ function PtyItemRow(
   return (
     <li
       key={item.id}
-      className={`pty-item state-${item.readyState}${item.active ? " active" : ""}`}
+      className={`pty-item reorderable state-${item.readyState}${item.active ? " active" : ""}`}
       data-pty-id={item.id}
-      draggable
+      data-pty-group-key={groupKey}
       style={ptyStyle(item.color)}
-      onClick={() => handlers.onSelectPty(item.id)}
-      onDragStart={(ev) => {
-        draggingPtyId = item.id;
-        draggingGroupKey = groupKey;
-        ev.dataTransfer?.setData("text/plain", item.id);
-        if (ev.dataTransfer) ev.dataTransfer.effectAllowed = "move";
-        ev.currentTarget.classList.add("dragging");
+      onClick={(ev) => {
+        if (Date.now() < suppressClickUntil) {
+          ev.preventDefault();
+          ev.stopPropagation();
+          return;
+        }
+        handlers.onSelectPty(item.id);
       }}
-      onDragOver={(ev) => {
-        if (!draggingPtyId || draggingPtyId === item.id || draggingGroupKey !== groupKey) return;
+      onPointerDown={(ev) => {
+        if (ev.button !== 0 || isInteractivePointerTarget(ev.target)) return;
+        pointerDragState = {
+          sourcePtyId: item.id,
+          groupKey,
+          pointerId: ev.pointerId,
+          startX: ev.clientX,
+          startY: ev.clientY,
+          active: false,
+          targetPtyId: null,
+          placement: "before",
+        };
+        ev.currentTarget.setPointerCapture(ev.pointerId);
+      }}
+      onPointerMove={(ev) => {
+        const state = pointerDragState;
+        if (!state || state.pointerId !== ev.pointerId) return;
+        const distance = Math.hypot(ev.clientX - state.startX, ev.clientY - state.startY);
+        if (!state.active && distance < DRAG_START_DISTANCE) return;
+        if (!state.active) {
+          state.active = true;
+          ev.currentTarget.classList.add("dragging");
+        }
         ev.preventDefault();
-        if (ev.dataTransfer) ev.dataTransfer.dropEffect = "move";
-        markDropTarget(ev.currentTarget, dragPlacement(ev as DragEvent, ev.currentTarget));
+
+        const targetRow = runningPtyRowFromPoint(ev.clientX, ev.clientY);
+        const targetPtyId = targetRow?.dataset.ptyId ?? null;
+        const targetGroupKey = targetRow?.dataset.ptyGroupKey ?? null;
+        if (!targetRow || !targetPtyId || targetPtyId === state.sourcePtyId || targetGroupKey !== state.groupKey) {
+          state.targetPtyId = null;
+          clearDragTargets();
+          return;
+        }
+
+        state.targetPtyId = targetPtyId;
+        state.placement = dragPlacement(ev.clientY, targetRow);
+        markDropTarget(targetRow, state.placement);
       }}
-      onDragLeave={(ev) => {
-        const nextTarget = ev.relatedTarget;
-        if (nextTarget instanceof Node && ev.currentTarget.contains(nextTarget)) return;
-        ev.currentTarget.classList.remove("drag-over-before", "drag-over-after");
-      }}
-      onDrop={(ev) => {
-        if (!draggingPtyId || draggingPtyId === item.id || draggingGroupKey !== groupKey) return;
-        ev.preventDefault();
-        const sourcePtyId = draggingPtyId;
-        const placement = dragPlacement(ev as DragEvent, ev.currentTarget);
+      onPointerUp={(ev) => {
+        const state = pointerDragState;
+        if (!state || state.pointerId !== ev.pointerId) return;
+        if (state.active) {
+          ev.preventDefault();
+          suppressClickUntil = Date.now() + 500;
+        }
+        const { sourcePtyId, targetPtyId, placement } = state;
         clearDragState();
-        handlers.onReorderPty(sourcePtyId, item.id, placement);
+        if (ev.currentTarget.hasPointerCapture(ev.pointerId)) {
+          ev.currentTarget.releasePointerCapture(ev.pointerId);
+        }
+        if (state.active && targetPtyId) {
+          handlers.onReorderPty(sourcePtyId, targetPtyId, placement);
+        }
       }}
-      onDragEnd={() => clearDragState()}
+      onPointerCancel={(ev) => {
+        if (pointerDragState?.pointerId !== ev.pointerId) return;
+        clearDragState();
+        if (ev.currentTarget.hasPointerCapture(ev.pointerId)) {
+          ev.currentTarget.releasePointerCapture(ev.pointerId);
+        }
+      }}
     >
       <div className="row">
         <div className="mainline">

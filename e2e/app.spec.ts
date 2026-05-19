@@ -118,6 +118,35 @@ async function killAllRunningPtys(page: Page, token: string): Promise<void> {
   }
 }
 
+function runningSidebarItemSelector(ptyId: string): string {
+  return `li.pty-item:not(.inactive)[data-pty-id="${ptyId}"]`;
+}
+
+async function runningSidebarIds(page: Page): Promise<string[]> {
+  return page
+    .locator("li.pty-item:not(.inactive)[data-pty-id]")
+    .evaluateAll((items) => items.map((item) => item.getAttribute("data-pty-id") ?? "").filter(Boolean));
+}
+
+async function dragRunningSidebarItemBefore(page: Page, sourcePtyId: string, targetPtyId: string): Promise<void> {
+  const source = page.locator(runningSidebarItemSelector(sourcePtyId));
+  const target = page.locator(runningSidebarItemSelector(targetPtyId));
+  const sourceBox = await source.boundingBox();
+  const targetBox = await target.boundingBox();
+  if (!sourceBox || !targetBox) throw new Error("sidebar item bounding box unavailable");
+
+  const sourceX = sourceBox.x + Math.min(36, sourceBox.width / 2);
+  const sourceY = sourceBox.y + sourceBox.height / 2;
+  const targetX = targetBox.x + Math.min(36, targetBox.width / 2);
+  const targetY = targetBox.y + 2;
+
+  await page.mouse.move(sourceX, sourceY);
+  await page.mouse.down();
+  await page.mouse.move(sourceX, sourceY + 10, { steps: 4 });
+  await page.mouse.move(targetX, targetY, { steps: 12 });
+  await page.mouse.up();
+}
+
 async function ensureNoRunningPtys(page: Page, token: string): Promise<void> {
   for (let attempt = 0; attempt < 20; attempt += 1) {
     const running = await listRunningPtys(page, token);
@@ -266,6 +295,50 @@ test("can create a PTY and fires proceed trigger", async ({ page }) => {
   if (ptyId) {
     const token = await readSessionToken(page);
     await page.request.post(`/api/ptys/${encodeURIComponent(ptyId)}/kill?token=${encodeURIComponent(token)}`);
+  }
+});
+
+test("can reorder running sidebar sessions by dragging", async ({ page }) => {
+  const token = await readSessionToken(page);
+  const ptyIds: string[] = [];
+
+  try {
+    await page.goto("/?nosup=1");
+    await page.evaluate(() => localStorage.removeItem("agmux:sidebarPtyOrder"));
+
+    for (let i = 0; i < 2; i += 1) {
+      const res = await page.request.post(`/api/ptys/shell?token=${encodeURIComponent(token)}`);
+      expect(res.ok()).toBeTruthy();
+      const json = (await res.json()) as { id?: unknown };
+      if (typeof json.id !== "string") throw new Error("shell response did not include a PTY id");
+      ptyIds.push(json.id);
+    }
+
+    const [firstPtyId, secondPtyId] = ptyIds;
+    if (!firstPtyId || !secondPtyId) throw new Error("expected two PTY ids");
+
+    await expect(page.locator(runningSidebarItemSelector(firstPtyId))).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator(runningSidebarItemSelector(secondPtyId))).toBeVisible({ timeout: 10_000 });
+    await expect
+      .poll(async () => (await runningSidebarIds(page)).filter((id) => ptyIds.includes(id)), { timeout: 10_000 })
+      .toEqual([firstPtyId, secondPtyId]);
+
+    await dragRunningSidebarItemBefore(page, secondPtyId, firstPtyId);
+
+    await expect
+      .poll(async () => (await runningSidebarIds(page)).filter((id) => ptyIds.includes(id)), { timeout: 10_000 })
+      .toEqual([secondPtyId, firstPtyId]);
+
+    await page.reload();
+    await expect(page.locator(runningSidebarItemSelector(firstPtyId))).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator(runningSidebarItemSelector(secondPtyId))).toBeVisible({ timeout: 10_000 });
+    await expect
+      .poll(async () => (await runningSidebarIds(page)).filter((id) => ptyIds.includes(id)), { timeout: 10_000 })
+      .toEqual([secondPtyId, firstPtyId]);
+  } finally {
+    for (const ptyId of ptyIds) {
+      await killPty(page, token, ptyId).catch(() => {});
+    }
   }
 });
 
