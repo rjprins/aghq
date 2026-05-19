@@ -32,7 +32,7 @@ describe("compareSidebarGroupKeys", () => {
 });
 
 describe("orderRunningPtysForSidebar", () => {
-  test("orders running PTYs by pinned groups first, then sidebar group order", () => {
+  test("orders running PTYs by pinned groups first, then sidebar group order, oldest first within a group", () => {
     const ptys = [
       pty("z-2", "/repos/zeta", 40),
       pty("a-2", "/repos/alpha", 30),
@@ -45,7 +45,7 @@ describe("orderRunningPtysForSidebar", () => {
       getGroupKey: (item) => item.cwd ?? "",
     });
 
-    expect(ordered.map((item) => item.id)).toEqual(["z-2", "z-1", "a-2", "b-1"]);
+    expect(ordered.map((item) => item.id)).toEqual(["z-1", "z-2", "a-2", "b-1"]);
   });
 
   test("ignores exited PTYs", () => {

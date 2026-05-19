@@ -33,6 +33,10 @@ export function orderRunningPtysForSidebar(
     }
   }
 
+  for (const items of runningByDir.values()) {
+    items.sort((a, b) => a.createdAt - b.createdAt);
+  }
+
   const orderedKeys = [
     ...[...runningByDir.keys()].filter((key) => opts.pinnedDirectories.has(key)).sort(compareSidebarGroupKeys),
     ...[...runningByDir.keys()].filter((key) => !opts.pinnedDirectories.has(key)).sort(compareSidebarGroupKeys),
