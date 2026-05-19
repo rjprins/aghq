@@ -13,6 +13,7 @@ function showMore(key: string): void {
 
 export type ReadyState = "ready" | "busy" | "unknown";
 export type ReadyIndicator = "ready" | "busy";
+export type PtyDragPlacement = "before" | "after";
 
 export type RunningPtyItem = {
   id: string;
@@ -105,6 +106,7 @@ export type PtyListHandlers = {
   onOpenLaunch: (groupKey: string) => void;
   onOpenLaunchInWorktree: (groupKey: string, worktreePath: string) => void;
   onSelectPty: (ptyId: string) => void;
+  onReorderPty: (sourcePtyId: string, targetPtyId: string, placement: PtyDragPlacement) => void;
   onRenamePty: (ptyId: string) => void;
   onKillPty: (ptyId: string) => void;
   onResumeInactive: (ptyId: string) => void;
@@ -205,16 +207,72 @@ function ptyStyle(color: string): Record<string, string> {
   return { "--pty-color": color } as Record<string, string>;
 }
 
+let draggingPtyId: string | null = null;
+let draggingGroupKey: string | null = null;
+
+function clearDragTargets(): void {
+  document.querySelectorAll(".pty-item.drag-over-before, .pty-item.drag-over-after").forEach((el) => {
+    el.classList.remove("drag-over-before", "drag-over-after");
+  });
+}
+
+function clearDragState(): void {
+  draggingPtyId = null;
+  draggingGroupKey = null;
+  clearDragTargets();
+  document.querySelectorAll(".pty-item.dragging").forEach((el) => {
+    el.classList.remove("dragging");
+  });
+}
+
+function dragPlacement(ev: DragEvent, el: HTMLElement): PtyDragPlacement {
+  const rect = el.getBoundingClientRect();
+  return ev.clientY >= rect.top + (rect.height / 2) ? "after" : "before";
+}
+
+function markDropTarget(el: HTMLElement, placement: PtyDragPlacement): void {
+  clearDragTargets();
+  el.classList.add(placement === "after" ? "drag-over-after" : "drag-over-before");
+}
+
 function PtyItemRow(
-  { item, handlers }: { item: RunningPtyItem; handlers: PtyListHandlers },
+  { item, groupKey, handlers }: { item: RunningPtyItem; groupKey: string; handlers: PtyListHandlers },
 ) {
   return (
     <li
       key={item.id}
       className={`pty-item state-${item.readyState}${item.active ? " active" : ""}`}
       data-pty-id={item.id}
+      draggable
       style={ptyStyle(item.color)}
       onClick={() => handlers.onSelectPty(item.id)}
+      onDragStart={(ev) => {
+        draggingPtyId = item.id;
+        draggingGroupKey = groupKey;
+        ev.dataTransfer?.setData("text/plain", item.id);
+        if (ev.dataTransfer) ev.dataTransfer.effectAllowed = "move";
+        ev.currentTarget.classList.add("dragging");
+      }}
+      onDragOver={(ev) => {
+        if (!draggingPtyId || draggingPtyId === item.id || draggingGroupKey !== groupKey) return;
+        ev.preventDefault();
+        if (ev.dataTransfer) ev.dataTransfer.dropEffect = "move";
+        markDropTarget(ev.currentTarget, dragPlacement(ev as DragEvent, ev.currentTarget));
+      }}
+      onDragLeave={(ev) => {
+        const nextTarget = ev.relatedTarget;
+        if (nextTarget instanceof Node && ev.currentTarget.contains(nextTarget)) return;
+        ev.currentTarget.classList.remove("drag-over-before", "drag-over-after");
+      }}
+      onDrop={(ev) => {
+        if (!draggingPtyId || draggingPtyId === item.id || draggingGroupKey !== groupKey) return;
+        ev.preventDefault();
+        const sourcePtyId = draggingPtyId;
+        const placement = dragPlacement(ev as DragEvent, ev.currentTarget);
+        clearDragState();
+        handlers.onReorderPty(sourcePtyId, item.id, placement);
+      }}
+      onDragEnd={() => clearDragState()}
     >
       <div className="row">
         <div className="mainline">
@@ -353,7 +411,7 @@ export function renderPtyList(root: Element, model: PtyListModel, handlers: PtyL
             : (
               <div className={model.showHeaders ? "group-body" : undefined}>
                 {group.items.map((item) => (
-                  <PtyItemRow key={item.id} item={item} handlers={handlers} />
+                  <PtyItemRow key={item.id} item={item} groupKey={group.key} handlers={handlers} />
                 ))}
               </div>
             )}

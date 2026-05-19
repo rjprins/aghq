@@ -1,5 +1,7 @@
 import type { PtySummary } from "../shared/protocol.js";
 
+export type PtyReorderPlacement = "before" | "after";
+
 function sidebarBasename(input: string): string {
   const segments = input.split("/").filter(Boolean);
   return segments.at(-1) ?? input;
@@ -16,6 +18,7 @@ export function orderRunningPtysForSidebar(
   opts: {
     pinnedDirectories: ReadonlySet<string>;
     getGroupKey: (pty: PtySummary) => string;
+    manualOrder?: readonly string[];
   },
 ): PtySummary[] {
   const runningByDir = new Map<string, PtySummary[]>();
@@ -35,7 +38,38 @@ export function orderRunningPtysForSidebar(
     ...[...runningByDir.keys()].filter((key) => !opts.pinnedDirectories.has(key)).sort(compareSidebarGroupKeys),
   ];
 
-  return orderedKeys.flatMap((key) => runningByDir.get(key) ?? []);
+  const manualOrderIndex = new Map((opts.manualOrder ?? []).map((id, index) => [id, index]));
+  return orderedKeys.flatMap((key) => {
+    const items = runningByDir.get(key) ?? [];
+    if (manualOrderIndex.size === 0) return items;
+    return [...items].sort((a, b) => {
+      const aIndex = manualOrderIndex.get(a.id);
+      const bIndex = manualOrderIndex.get(b.id);
+      if (aIndex === undefined && bIndex === undefined) return 0;
+      if (aIndex === undefined) return 1;
+      if (bIndex === undefined) return -1;
+      return aIndex - bIndex;
+    });
+  });
+}
+
+export function reorderPtyIds(
+  ids: readonly string[],
+  sourceId: string,
+  targetId: string,
+  placement: PtyReorderPlacement,
+): string[] {
+  if (sourceId === targetId) return [...ids];
+  if (!ids.includes(sourceId) || !ids.includes(targetId)) return [...ids];
+  const withoutSource = ids.filter((id) => id !== sourceId);
+  const targetIndex = withoutSource.indexOf(targetId);
+  if (targetIndex === -1) return [...ids];
+  const insertIndex = placement === "after" ? targetIndex + 1 : targetIndex;
+  return [
+    ...withoutSource.slice(0, insertIndex),
+    sourceId,
+    ...withoutSource.slice(insertIndex),
+  ];
 }
 
 function wrapIndex(index: number, length: number): number {

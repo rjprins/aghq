@@ -355,6 +355,40 @@ button:disabled {
   opacity: 0.7;
 }
 
+.pty-item[draggable="true"] {
+  cursor: grab;
+}
+
+.pty-item[draggable="true"]:active {
+  cursor: grabbing;
+}
+
+.pty-item.dragging {
+  opacity: 0.4;
+}
+
+.pty-item.drag-over-before::before,
+.pty-item.drag-over-after::after {
+  content: "";
+  position: absolute;
+  left: 6px;
+  right: 6px;
+  height: 2px;
+  border-radius: 999px;
+  background: var(--accent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent);
+  pointer-events: none;
+  z-index: 2;
+}
+
+.pty-item.drag-over-before::before {
+  top: -4px;
+}
+
+.pty-item.drag-over-after::after {
+  bottom: -4px;
+}
+
 .pty-item.active {
   opacity: 1;
   border-color: color-mix(in srgb, var(--pty-color, var(--accent)) 50%, var(--surface-border));

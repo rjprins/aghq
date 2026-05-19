@@ -5,6 +5,7 @@ import {
   findNextReadyRunningPty,
   findRunningPtyByOffset,
   orderRunningPtysForSidebar,
+  reorderPtyIds,
 } from "../src/ui/pty-order.js";
 
 function pty(id: string, cwd: string | null, createdAt: number, status: "running" | "exited" = "running"): PtySummary {
@@ -60,6 +61,35 @@ describe("orderRunningPtysForSidebar", () => {
     });
 
     expect(ordered.map((item) => item.id)).toEqual(["alpha", "beta"]);
+  });
+
+  test("applies manual session order inside each sidebar group", () => {
+    const ptys = [
+      pty("alpha-1", "/repos/alpha", 40),
+      pty("beta-1", "/repos/beta", 30),
+      pty("alpha-2", "/repos/alpha", 20),
+      pty("beta-2", "/repos/beta", 10),
+    ];
+
+    const ordered = orderRunningPtysForSidebar(ptys, {
+      pinnedDirectories: new Set<string>(),
+      getGroupKey: (item) => item.cwd ?? "",
+      manualOrder: ["beta-2", "alpha-2", "alpha-1"],
+    });
+
+    expect(ordered.map((item) => item.id)).toEqual(["alpha-2", "alpha-1", "beta-2", "beta-1"]);
+  });
+});
+
+describe("reorderPtyIds", () => {
+  test("moves a source id before or after a target id", () => {
+    expect(reorderPtyIds(["a", "b", "c"], "c", "a", "before")).toEqual(["c", "a", "b"]);
+    expect(reorderPtyIds(["a", "b", "c"], "a", "c", "after")).toEqual(["b", "c", "a"]);
+  });
+
+  test("leaves the order unchanged when either id is unknown", () => {
+    expect(reorderPtyIds(["a", "b", "c"], "x", "b", "before")).toEqual(["a", "b", "c"]);
+    expect(reorderPtyIds(["a", "b", "c"], "a", "x", "after")).toEqual(["a", "b", "c"]);
   });
 });
 

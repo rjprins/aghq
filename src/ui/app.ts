@@ -49,6 +49,8 @@ import {
   findNextReadyRunningPty,
   findRunningPtyByOffset,
   orderRunningPtysForSidebar,
+  reorderPtyIds,
+  type PtyReorderPlacement,
 } from "./pty-order";
 import {
   renderRestoreSessionModal,
@@ -172,9 +174,11 @@ const INPUT_HISTORY_STORAGE_KEY = "agmux:inputHistory";
 const HIDDEN_AGENT_SESSIONS_KEY = "agmux:hiddenAgentSessions";
 const PINNED_DIRECTORIES_KEY = "agmux:pinnedDirectories";
 const ARCHIVED_DIRECTORIES_KEY = "agmux:archivedDirectories";
+const SIDEBAR_PTY_ORDER_KEY = "agmux:sidebarPtyOrder";
 const hiddenAgentSessionIds = new Set<string>();
 const pinnedDirectories = new Set<string>();
 const archivedDirectories = new Set<string>();
+let sidebarPtyOrder: string[] = [];
 
 function loadHiddenAgentSessions(): void {
   try {
@@ -246,6 +250,38 @@ function saveArchivedDirectories(): void {
   } catch {
     // ignore
   }
+}
+
+function loadSidebarPtyOrder(): void {
+  try {
+    const raw = localStorage.getItem(SIDEBAR_PTY_ORDER_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return;
+    sidebarPtyOrder = parsed.filter((value): value is string => typeof value === "string" && value.trim().length > 0);
+  } catch {
+    // ignore
+  }
+}
+
+function saveSidebarPtyOrder(): void {
+  try {
+    if (sidebarPtyOrder.length === 0) {
+      localStorage.removeItem(SIDEBAR_PTY_ORDER_KEY);
+      return;
+    }
+    localStorage.setItem(SIDEBAR_PTY_ORDER_KEY, JSON.stringify(sidebarPtyOrder));
+  } catch {
+    // ignore
+  }
+}
+
+function pruneSidebarPtyOrder(): void {
+  const runningIds = new Set(ptys.filter((p) => p.status === "running").map((p) => p.id));
+  const nextOrder = sidebarPtyOrder.filter((id) => runningIds.has(id));
+  if (nextOrder.length === sidebarPtyOrder.length) return;
+  sidebarPtyOrder = nextOrder;
+  saveSidebarPtyOrder();
 }
 
 function saveActivePty(ptyId: string | null): void {
@@ -381,6 +417,7 @@ function applyInputMeta(data: Record<string, InputHistoryRecord>, overwrite: boo
 loadHiddenAgentSessions();
 loadPinnedDirectories();
 loadArchivedDirectories();
+loadSidebarPtyOrder();
 
 async function refreshWorktreeCache(): Promise<void> {
   try {
@@ -4223,11 +4260,31 @@ function buildInactiveWorktreeSubgroups(
   return { rootItems, worktrees };
 }
 
+function sameStringList(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((value, index) => value === b[index]);
+}
+
+function reorderSidebarPty(sourcePtyId: string, targetPtyId: string, placement: PtyReorderPlacement): void {
+  const source = ptys.find((p) => p.id === sourcePtyId && p.status === "running");
+  const target = ptys.find((p) => p.id === targetPtyId && p.status === "running");
+  if (!source || !target) return;
+  if (runningPtyGroupKey(source) !== runningPtyGroupKey(target)) return;
+
+  const currentOrder = runningPtys().map((p) => p.id);
+  const nextOrder = reorderPtyIds(currentOrder, sourcePtyId, targetPtyId, placement);
+  if (sameStringList(currentOrder, nextOrder)) return;
+  sidebarPtyOrder = nextOrder;
+  saveSidebarPtyOrder();
+  renderList();
+}
+
 function renderList(): void {
   // Group running PTYs by CWD (normalize .worktrees/ paths to parent repo).
+  pruneSidebarPtyOrder();
   const runningPtys = orderRunningPtysForSidebar(ptys, {
     pinnedDirectories,
     getGroupKey: runningPtyGroupKey,
+    manualOrder: sidebarPtyOrder,
   });
   const activeAgentSessionIds = new Set(
     runningPtys
@@ -4410,6 +4467,9 @@ function renderList(): void {
     onOpenLaunch: (groupKey) => openLaunchModal(groupKey),
     onOpenLaunchInWorktree: (groupKey, worktreePath) => openLaunchModal(groupKey, worktreePath),
     onSelectPty: (ptyId) => setActive(ptyId),
+    onReorderPty: (sourcePtyId, targetPtyId, placement) => {
+      reorderSidebarPty(sourcePtyId, targetPtyId, placement);
+    },
     onRenamePty: (ptyId) => {
       void renamePty(ptyId);
     },
@@ -4733,9 +4793,11 @@ window.addEventListener("resize", () => { fitAndResizeActive(); reflowActiveTerm
 // --- Keybindings ---
 
 function runningPtys(): PtySummary[] {
+  pruneSidebarPtyOrder();
   return orderRunningPtysForSidebar(ptys, {
     pinnedDirectories,
     getGroupKey: runningPtyGroupKey,
+    manualOrder: sidebarPtyOrder,
   });
 }
 
