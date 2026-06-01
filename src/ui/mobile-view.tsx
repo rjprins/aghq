@@ -315,7 +315,7 @@ export function renderMobileView(
       <header className="mobile-topbar">
         <div className="mobile-brand">
           <div className="mobile-brand-row">
-            <div className="mobile-brand-title">agmux</div>
+            <div className="mobile-brand-title">aghq</div>
           </div>
           <div className="mobile-brand-sub">agent control</div>
         </div>

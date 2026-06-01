@@ -1,6 +1,6 @@
 # Auth Token (Opt-in)
 
-agmux token auth is optional.
+aghq token auth is optional.
 
 ## Default behavior
 
@@ -35,7 +35,7 @@ When enabled:
 
 ## Browser auto-open behavior
 
-When token auth is enabled (`AGMUX_TOKEN_ENABLED=1`) and `AGMUX_NO_OPEN` is not set to `1`, agmux auto-opens:
+When token auth is enabled (`AGMUX_TOKEN_ENABLED=1`) and `AGMUX_NO_OPEN` is not set to `1`, aghq auto-opens:
 
 ```text
 http://127.0.0.1:<port>/?token=<token>
@@ -47,7 +47,7 @@ The UI keeps `?token=...` in the URL so refreshes remain authenticated even if w
 
 ## Startup logging
 
-On startup, agmux logs:
+On startup, aghq logs:
 
 - whether token auth is enabled or disabled
 - the configured log level

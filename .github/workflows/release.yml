@@ -1,6 +1,6 @@
 name: Release
 
-# Publishes @rjprins/agmux to npm when a version tag is pushed, e.g. `v1.0.0`.
+# Publishes aghq to npm when a version tag is pushed, e.g. `v1.0.0`.
 # Requires an `NPM_TOKEN` repository secret (an npm automation/granular token
 # with publish rights). See RELEASE.md for the full process.
 
@@ -39,6 +39,6 @@ jobs:
         run: npm test
 
       - name: Publish to npm
-        run: npm publish --provenance --access public
+        run: npm publish --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
