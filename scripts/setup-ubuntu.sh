@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Setup script for agmux on Ubuntu 24.04
+# Setup script for aghq on Ubuntu 24.04
 
 echo "==> Installing system packages"
 apt update

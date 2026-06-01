@@ -1,14 +1,9 @@
-# Releasing agmux
+# Releasing aghq
 
-agmux is published to npm as the scoped package **`@rjprins/agmux`** (the bare
-name `agmux` is taken on npm by an unrelated package). The package installs two
-binaries:
+aghq is published to npm as **`aghq`**. The package installs two binaries:
 
-- `agmux` — starts the web UI (`dist/server.js`)
-- `agmux-mcp` — the MCP stdio server (`dist/mcp/server.js`)
-
-Because the package name is scoped, it is published with public access
-(`publishConfig.access = "public"`).
+- `aghq` — starts the web UI (`dist/server.js`)
+- `aghq-mcp` — the MCP stdio server (`dist/mcp/server.js`)
 
 ## What ships in the package
 
@@ -42,7 +37,7 @@ prebuilds land.
 
 ## One-time setup
 
-1. Be an owner/maintainer of `@rjprins/agmux` on npm (`npm owner ls @rjprins/agmux`).
+1. Be an owner/maintainer of `aghq` on npm (`npm owner ls aghq`).
 2. Create an npm **automation** (or granular publish) token and add it to the
    GitHub repository as the secret **`NPM_TOKEN`**
    (`Settings → Secrets and variables → Actions`).
@@ -64,14 +59,14 @@ git push origin main --follow-tags
 ```
 
 Pushing the `v*` tag triggers the workflow, which builds, tests, and runs
-`npm publish --provenance --access public`.
+`npm publish --provenance`.
 
 ## Releasing (manual fallback)
 
 ```sh
 npm run build
 npm pack --dry-run        # sanity-check contents
-npm publish --access public
+npm publish
 ```
 
 ## Pre-release checklist

@@ -6,8 +6,8 @@ export type AgentReadyProvider = "claude" | "codex";
 const CALLBACK_HOST = HOST === "0.0.0.0" || HOST === "::" ? "127.0.0.1" : HOST;
 
 export const AGMUX_API_BASE = `http://${CALLBACK_HOST}:${PORT}`;
-// The helper script ships inside the agmux package, so resolve it there (not in
-// the user's repo) — otherwise a globally-installed agmux exports a bad path.
+// The helper script ships inside the aghq package, so resolve it there (not in
+// the user's repo) — otherwise a globally-installed aghq exports a bad path.
 export const AGMUX_READY_HELPER = path.join(PACKAGE_ROOT, "scripts", "agent-ready.mjs");
 
 export function isAgentReadyProvider(value: unknown): value is AgentReadyProvider {

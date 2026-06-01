@@ -1,9 +1,9 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "agmux API",
+    "title": "aghq API",
     "version": "current",
-    "description": "Current agmux HTTP API surface used by UI and agents."
+    "description": "Current aghq HTTP API surface used by UI and agents."
   },
   "servers": [
     {

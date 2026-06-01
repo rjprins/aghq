@@ -1,6 +1,6 @@
 # Agent API Reference (Current `/api/*` + `/ws`)
 
-This document describes the **current** agmux API surface that the UI uses today.
+This document describes the **current** aghq API surface that the UI uses today.
 Agents can use the same endpoints directly.
 
 This is a behavior reference, not a versioned compatibility guarantee.
@@ -119,7 +119,7 @@ Errors:
 
 ### `POST /api/ptys/shell`
 
-Spawns a shell PTY in agmux tmux.
+Spawns a shell PTY in aghq tmux.
 
 Success:
 

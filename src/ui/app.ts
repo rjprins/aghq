@@ -1352,7 +1352,7 @@ async function ensureAuthToken(): Promise<void> {
   }
 
   const entered = window.prompt(
-    "Enter AGMUX token.\nIf AGMUX_TOKEN_ENABLED=1 and the token was auto-generated, check the server log for '[agmux] Token: ...'.",
+    "Enter AGMUX token.\nIf AGMUX_TOKEN_ENABLED=1 and the token was auto-generated, check the server log for '[aghq] Token: ...'.",
   );
   const token = entered?.trim() ?? "";
   if (!token) {
