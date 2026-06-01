@@ -2,6 +2,18 @@ import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import path from "node:path";
 import process from "node:process";
+import { fileURLToPath } from "node:url";
+
+/**
+ * Absolute path to the installed agmux package root — the directory holding
+ * `package.json`, `public/`, and `scripts/`. Resolved relative to this module so
+ * bundled assets are found no matter what the current working directory is; this
+ * is what lets a globally-installed `agmux` run from any directory.
+ *
+ * This file runs from `src/server/config.ts` in dev and compiles to
+ * `dist/server/config.js`; both sit two levels below the package root.
+ */
+export const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 
 /** Resolve the top-level git repo root (handles running inside a worktree). */
 export const REPO_ROOT = (() => {
@@ -22,7 +34,10 @@ export const HOST = process.env.HOST ?? "127.0.0.1";
 export const DEFAULT_PORT = 4821;
 const requestedPort = Number(process.env.PORT ?? String(DEFAULT_PORT));
 export const PORT = Number.isInteger(requestedPort) && requestedPort > 0 ? requestedPort : DEFAULT_PORT;
-export const PUBLIC_DIR = path.resolve("public");
+// Bundled UI assets always ship inside the package, so resolve them there.
+export const PUBLIC_DIR = path.join(PACKAGE_ROOT, "public");
+// DB and triggers are project-local state, resolved against the current working
+// directory (run agmux from the project you want it to manage).
 export const DB_PATH = process.env.DB_PATH ?? path.resolve("data/agmux.db");
 export const TRIGGERS_PATH = process.env.TRIGGERS_PATH ?? path.resolve("triggers/index.js");
 export const AUTH_ENABLED = /^(1|true|yes|on)$/i.test((process.env.AGMUX_TOKEN_ENABLED ?? "").trim());

@@ -1,12 +1,14 @@
 import path from "node:path";
-import { AUTH_ENABLED, AUTH_TOKEN, HOST, PORT, REPO_ROOT } from "./config.js";
+import { AUTH_ENABLED, AUTH_TOKEN, HOST, PACKAGE_ROOT, PORT } from "./config.js";
 
 export type AgentReadyProvider = "claude" | "codex";
 
 const CALLBACK_HOST = HOST === "0.0.0.0" || HOST === "::" ? "127.0.0.1" : HOST;
 
 export const AGMUX_API_BASE = `http://${CALLBACK_HOST}:${PORT}`;
-export const AGMUX_READY_HELPER = path.resolve(REPO_ROOT, "scripts/agent-ready.mjs");
+// The helper script ships inside the agmux package, so resolve it there (not in
+// the user's repo) — otherwise a globally-installed agmux exports a bad path.
+export const AGMUX_READY_HELPER = path.join(PACKAGE_ROOT, "scripts", "agent-ready.mjs");
 
 export function isAgentReadyProvider(value: unknown): value is AgentReadyProvider {
   return value === "claude" || value === "codex";

@@ -1,9 +1,10 @@
 {
-  "name": "agmux",
+  "name": "@rjprins/agmux",
   "version": "1.0.0",
   "description": "Local web UI for managing agent terminal sessions with live streaming, triggers, and readiness detection",
   "main": "dist/server.js",
   "bin": {
+    "agmux": "dist/server.js",
     "agmux-mcp": "dist/mcp/server.js"
   },
   "repository": {
@@ -30,7 +31,27 @@
     "e2e:headed": "playwright test --headed",
     "e2e:ui": "playwright test --ui",
     "e2e:debug": "PWDEBUG=1 playwright test --headed",
-    "test": "vitest run"
+    "test": "vitest run",
+    "prepublishOnly": "npm run build"
+  },
+  "files": [
+    "dist",
+    "public/index.html",
+    "public/styles.css",
+    "public/app.js",
+    "public/xterm.css",
+    "scripts/agent-ready.mjs",
+    "scripts/install-mcp.mjs",
+    "triggers",
+    "docs",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "keywords": [
     "terminal",
@@ -38,7 +59,15 @@
     "agent",
     "tmux",
     "websocket",
-    "cli"
+    "cli",
+    "claude-code",
+    "codex",
+    "coding-agent",
+    "ai-agents",
+    "mcp",
+    "web-terminal",
+    "fastify",
+    "preact"
   ],
   "license": "MIT",
   "type": "module",
