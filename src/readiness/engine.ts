@@ -1,13 +1,20 @@
 import type { PtyManager } from "../pty/manager.js";
 import type { PtyReadinessIndicator, PtyReadinessState, PtySummary } from "../types.js";
-import { tmuxCapturePaneVisible, tmuxPaneActiveProcess, tmuxPaneCurrentPath, tmuxPaneDimensions } from "../tmux.js";
+import { tmuxCapturePaneVisible, tmuxPaneActiveProcessFromInspection, tmuxPaneInspect } from "../tmux.js";
 import { inferPaneStatus, type PaneCacheState } from "./status-inference.js";
 
 const READINESS_WORKING_GRACE_MS = Math.max(
   300,
   Number(process.env.AGMUX_WORKING_GRACE_MS ?? "4000") || 4000,
 );
-const READINESS_RECOMPUTE_DEBOUNCE_MS = 120;
+const READINESS_RECOMPUTE_DEBOUNCE_MS = Math.max(
+  250,
+  Number(process.env.AGMUX_READINESS_RECOMPUTE_DEBOUNCE_MS ?? "500") || 500,
+);
+const READINESS_LIST_REFRESH_STALE_MS = Math.max(
+  2_000,
+  Number(process.env.AGMUX_READINESS_LIST_REFRESH_STALE_MS ?? "10000") || 10_000,
+);
 const READINESS_POST_COMMAND_CHECK_MS = 800;
 const READINESS_SHELL_QUIET_MS = 250;
 const OUTPUT_BUFFER_LIMIT = 16_000;
@@ -42,6 +49,7 @@ type PtyReadyStateInternal = {
   activeProcess: string | null;
   lastOutputAt: number;
   lastCommandAt: number | null;
+  evaluatedAt: number | null;
   provider: AgentReadyProvider | null;
   explicitReadyReason: string | null;
   explicitReadyAt: number | null;
@@ -60,6 +68,8 @@ export class ReadinessEngine {
   private readonly readinessByPty = new Map<string, PtyReadyStateInternal>();
   private readonly inputLineByPty = new Map<string, string>();
   private readonly postCommandTimers = new Map<string, NodeJS.Timeout>();
+  private readonly recomputeInFlight = new Set<string>();
+  private readonly recomputeAgainAfter = new Set<string>();
 
   constructor(private readonly deps: ReadinessDeps) {}
 
@@ -126,40 +136,47 @@ export class ReadinessEngine {
     this.setPtyReadiness(ptyId, "busy", "exited");
   }
 
+  /**
+   * Enrich list responses from cached readiness only; stale tmux inspection is
+   * refreshed in the background so /api/ptys does not block on every pane.
+   */
   async withActiveProcesses(items: PtySummary[]): Promise<PtySummary[]> {
-    return Promise.all(
-      items.map(async (p) => {
-        const st = this.ensureReadiness(p.id);
-        if (p.status !== "running") {
-          this.clearReadinessTimer(st);
-          this.setPtyReadiness(p.id, "busy", "exited", false);
-          return {
-            ...p,
-            activeProcess: p.activeProcess ?? st.activeProcess ?? null,
-            ready: false,
-            readyState: "busy",
-            readyIndicator: "busy",
-            readyReason: "exited",
-          };
-        }
-
-        const evaluation = await this.evaluateReadiness(p.id, p);
-        st.activeProcess = evaluation.activeProcess ?? st.activeProcess;
-        this.setPtyReadiness(p.id, evaluation.state, evaluation.reason, false, evaluation.indicator, evaluation.cwd, st.activeProcess);
-        if (evaluation.nextCheckInMs != null) this.scheduleReadinessRecompute(p.id, evaluation.nextCheckInMs);
-
+    const now = Date.now();
+    return items.map((p, index) => {
+      const st = this.ensureReadiness(p.id);
+      if (p.status !== "running") {
+        this.clearReadinessTimer(st);
+        this.recomputeAgainAfter.delete(p.id);
+        this.setPtyReadiness(p.id, "busy", "exited", false);
         return {
           ...p,
-          activeProcess: st.activeProcess ?? evaluation.activeProcess,
-          cwd: evaluation.cwd,
-          ready: st.state === "ready",
-          readyState: st.state,
-          readyIndicator: st.indicator,
-          readyReason: st.reason,
-          readyStateChangedAt: st.updatedAt,
+          activeProcess: p.activeProcess ?? st.activeProcess ?? null,
+          ready: false,
+          readyState: "busy",
+          readyIndicator: "busy",
+          readyReason: "exited",
         };
-      }),
-    );
+      }
+
+      const stale = st.evaluatedAt == null || now - st.evaluatedAt >= READINESS_LIST_REFRESH_STALE_MS;
+      if (stale && !st.timer && !this.recomputeInFlight.has(p.id)) {
+        this.scheduleReadinessRecompute(p.id, Math.min(1_000, index * 75));
+      }
+
+      const cwd = st.lastCwd ?? p.cwd ?? null;
+      const activeProcess = p.activeProcess ?? st.activeProcess ?? null;
+
+      return {
+        ...p,
+        activeProcess,
+        cwd,
+        ready: st.state === "ready",
+        readyState: st.state,
+        readyIndicator: st.indicator,
+        readyReason: st.reason,
+        readyStateChangedAt: st.updatedAt,
+      };
+    });
   }
 
   private async evaluateReadiness(ptyId: string, summary: PtySummary): Promise<ReadinessEvaluation> {
@@ -179,20 +196,20 @@ export class ReadinessEngine {
       });
     }
 
-    const [proc, liveCwd] = await Promise.all([
-      tmuxPaneActiveProcess(summary.tmuxSession, summary.tmuxServer),
-      tmuxPaneCurrentPath(summary.tmuxSession, summary.tmuxServer),
+    const [paneInfo, paneContent] = await Promise.all([
+      tmuxPaneInspect(summary.tmuxSession, summary.tmuxServer),
+      tmuxCapturePaneVisible(summary.tmuxSession, summary.tmuxServer),
     ]);
+    const proc = paneInfo
+      ? await tmuxPaneActiveProcessFromInspection(summary.tmuxSession, paneInfo)
+      : null;
+    const liveCwd = paneInfo?.cwd ?? null;
     activeProcess = proc ?? activeProcess;
     if (liveCwd) {
       this.deps.ptys.updateCwd(ptyId, liveCwd);
       cwd = liveCwd;
     }
 
-    const [paneContent, paneSize] = await Promise.all([
-      tmuxCapturePaneVisible(summary.tmuxSession, summary.tmuxServer),
-      tmuxPaneDimensions(summary.tmuxSession, summary.tmuxServer),
-    ]);
     if (paneContent == null) {
       const lastOutputAt = st.lastOutputAt ?? 0;
       const lastCommandAt = st.lastCommandAt ?? 0;
@@ -215,8 +232,8 @@ export class ReadinessEngine {
       prev: st.paneCache,
       next: {
         content: paneContent,
-        width: paneSize?.width ?? 120,
-        height: paneSize?.height ?? 30,
+        width: paneInfo?.width ?? 120,
+        height: paneInfo?.height ?? 30,
       },
       now,
       workingGracePeriodMs: READINESS_WORKING_GRACE_MS,
@@ -323,6 +340,7 @@ export class ReadinessEngine {
       activeProcess: null,
       lastOutputAt: 0,
       lastCommandAt: null,
+      evaluatedAt: null,
       provider: null,
       explicitReadyReason: null,
       explicitReadyAt: null,
@@ -447,17 +465,35 @@ export class ReadinessEngine {
   }
 
   private async recomputeReadiness(ptyId: string): Promise<void> {
-    const summary = this.deps.ptys.getSummary(ptyId);
-    if (!summary || summary.status !== "running") {
-      this.setPtyReadiness(ptyId, "busy", "exited");
+    if (this.recomputeInFlight.has(ptyId)) {
+      this.recomputeAgainAfter.add(ptyId);
       return;
     }
+    this.recomputeInFlight.add(ptyId);
+    try {
+      const summary = this.deps.ptys.getSummary(ptyId);
+      if (!summary || summary.status !== "running") {
+        const st = this.ensureReadiness(ptyId);
+        st.evaluatedAt = Date.now();
+        this.setPtyReadiness(ptyId, "busy", "exited");
+        return;
+      }
 
-    const evaluation = await this.evaluateReadiness(ptyId, summary);
-    const st = this.ensureReadiness(ptyId);
-    st.activeProcess = evaluation.activeProcess ?? st.activeProcess;
-    this.setPtyReadiness(ptyId, evaluation.state, evaluation.reason, true, evaluation.indicator, evaluation.cwd, st.activeProcess);
-    if (evaluation.nextCheckInMs != null) this.scheduleReadinessRecompute(ptyId, evaluation.nextCheckInMs);
+      const evaluation = await this.evaluateReadiness(ptyId, summary);
+      const st = this.ensureReadiness(ptyId);
+      st.evaluatedAt = Date.now();
+      st.activeProcess = evaluation.activeProcess ?? st.activeProcess;
+      this.setPtyReadiness(ptyId, evaluation.state, evaluation.reason, true, evaluation.indicator, evaluation.cwd, st.activeProcess);
+      if (evaluation.nextCheckInMs != null) this.scheduleReadinessRecompute(ptyId, evaluation.nextCheckInMs);
+    } finally {
+      this.recomputeInFlight.delete(ptyId);
+      if (this.recomputeAgainAfter.delete(ptyId)) {
+        const summary = this.deps.ptys.getSummary(ptyId);
+        if (summary?.status === "running") {
+          this.scheduleReadinessRecompute(ptyId, READINESS_RECOMPUTE_DEBOUNCE_MS);
+        }
+      }
+    }
   }
 
   private readinessSignalSource(reason: string): string {

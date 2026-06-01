@@ -558,23 +558,47 @@ function isShellCommand(cmd: string): boolean {
   return SHELL_COMMANDS.has(normalizeCommandName(cmd));
 }
 
+export type TmuxPaneInspection = {
+  command: string;
+  panePid: number | null;
+  tty: string | null;
+  cwd: string | null;
+  width: number | null;
+  height: number | null;
+};
+
 async function tmuxPaneMeta(
   name: string,
   serverHint?: TmuxServer | null,
 ): Promise<{ command: string; panePid: number | null; tty: string | null } | null> {
+  const info = await tmuxPaneInspect(name, serverHint);
+  if (!info) return null;
+  return { command: info.command, panePid: info.panePid, tty: info.tty };
+}
+
+export async function tmuxPaneInspect(
+  name: string,
+  serverHint?: TmuxServer | null,
+): Promise<TmuxPaneInspection | null> {
   const server = normalizeServerHint(serverHint) ?? await tmuxLocateSession(name);
   if (!server) return null;
   try {
+    const fmt = "#{pane_current_command}\t#{pane_pid}\t#{pane_tty}\t#{pane_current_path}\t#{pane_width}\t#{pane_height}";
     const out =
       server === "default"
-        ? await tmuxDefaultOut(["display-message", "-p", "-t", name, "#{pane_current_command}\t#{pane_pid}\t#{pane_tty}"])
-        : await tmuxAgentOut(["display-message", "-p", "-t", name, "#{pane_current_command}\t#{pane_pid}\t#{pane_tty}"]);
-    const [commandRaw, panePidRaw, ttyRaw] = out.trim().split("\t");
+        ? await tmuxDefaultOut(["display-message", "-p", "-t", name, fmt])
+        : await tmuxAgentOut(["display-message", "-p", "-t", name, fmt]);
+    const [commandRaw, panePidRaw, ttyRaw, cwdRaw, widthRaw, heightRaw] = out.trim().split("\t");
     const command = (commandRaw ?? "").trim();
     const panePidNum = Number((panePidRaw ?? "").trim());
     const panePid = Number.isFinite(panePidNum) && panePidNum > 0 ? panePidNum : null;
     const tty = (ttyRaw ?? "").trim() || null;
-    return { command, panePid, tty };
+    const cwd = (cwdRaw ?? "").trim() || null;
+    const widthNum = Number.parseInt((widthRaw ?? "").trim(), 10);
+    const heightNum = Number.parseInt((heightRaw ?? "").trim(), 10);
+    const width = Number.isFinite(widthNum) && widthNum > 0 ? widthNum : null;
+    const height = Number.isFinite(heightNum) && heightNum > 0 ? heightNum : null;
+    return { command, panePid, tty, cwd, width, height };
   } catch {
     return null;
   }
@@ -694,6 +718,13 @@ export async function tmuxPaneActiveProcess(
   serverHint?: TmuxServer | null,
 ): Promise<string | null> {
   const meta = await tmuxPaneMeta(name, serverHint);
+  return tmuxPaneActiveProcessFromInspection(name, meta);
+}
+
+export async function tmuxPaneActiveProcessFromInspection(
+  name: string,
+  meta: Pick<TmuxPaneInspection, "command" | "panePid" | "tty"> | null,
+): Promise<string | null> {
   if (!meta || !meta.command) return null;
   if (!isShellCommand(meta.command)) {
     if (!isRuntimeWrapperCommand(meta.command)) {

@@ -50,7 +50,10 @@ export function createRuntime(deps: RuntimeDeps) {
 
   const readinessTrace: ReadinessTraceEntry[] = [];
   let readinessTraceSeq = 0;
-  const cwdPollIntervalMs = 2000;
+  const cwdPollIntervalMs = Math.max(
+    2_000,
+    Number(process.env.AGMUX_CWD_POLL_INTERVAL_MS ?? "10000") || 10_000,
+  );
 
   function recordReadinessTrace(evt: PtyReadyEvent): void {
     readinessTrace.push({ ...evt, seq: readinessTraceSeq++ });
