@@ -15,7 +15,7 @@ export type MobileRunningSession = {
   worktree?: string;
   cwd?: string;
   readyState: "ready" | "busy" | "unknown";
-  readyIndicator: "ready" | "busy";
+  readyIndicator: "ready" | "busy" | "unknown";
   readyReason: string;
   elapsed?: string;
   lastInput?: string;
@@ -57,7 +57,7 @@ export type MobileFocus = {
   subtitle: string;
   metaPills?: string[];
   readyState: "ready" | "busy" | "unknown";
-  readyIndicator: "ready" | "busy";
+  readyIndicator: "ready" | "busy" | "unknown";
   readyReason: string;
   elapsed?: string;
   lastInput?: string;

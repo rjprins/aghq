@@ -158,8 +158,9 @@ export class ReadinessEngine {
         };
       }
 
-      const stale = st.evaluatedAt == null || now - st.evaluatedAt >= READINESS_LIST_REFRESH_STALE_MS;
-      if (stale && !st.timer && !this.recomputeInFlight.has(p.id)) {
+      if (st.evaluatedAt == null) {
+        void this.recomputeReadiness(p.id);
+      } else if (now - st.evaluatedAt >= READINESS_LIST_REFRESH_STALE_MS && !st.timer && !this.recomputeInFlight.has(p.id)) {
         this.scheduleReadinessRecompute(p.id, Math.min(1_000, index * 75));
       }
 
@@ -330,7 +331,7 @@ export class ReadinessEngine {
     if (st) return st;
     st = {
       state: "unknown",
-      indicator: "busy",
+      indicator: "unknown",
       reason: "startup",
       updatedAt: Date.now(),
       timer: null,
@@ -409,7 +410,7 @@ export class ReadinessEngine {
     activeProcessOverride?: string | null,
   ): void {
     const st = this.ensureReadiness(ptyId);
-    const indicator = state === "ready" ? "ready" : state === "busy" ? "busy" : (indicatorOverride ?? st.indicator);
+    const indicator = state === "ready" ? "ready" : state === "busy" ? "busy" : (indicatorOverride ?? "unknown");
     const cwd = cwdOverride ?? this.deps.ptys.getSummary(ptyId)?.cwd ?? null;
     const activeProcess = activeProcessOverride ?? st.activeProcess;
     const cwdChanged = cwd !== st.lastCwd;
@@ -485,6 +486,10 @@ export class ReadinessEngine {
       st.activeProcess = evaluation.activeProcess ?? st.activeProcess;
       this.setPtyReadiness(ptyId, evaluation.state, evaluation.reason, true, evaluation.indicator, evaluation.cwd, st.activeProcess);
       if (evaluation.nextCheckInMs != null) this.scheduleReadinessRecompute(ptyId, evaluation.nextCheckInMs);
+    } catch {
+      const st = this.ensureReadiness(ptyId);
+      st.evaluatedAt = Date.now();
+      this.setPtyReadiness(ptyId, "unknown", "inspection:error", true, "unknown");
     } finally {
       this.recomputeInFlight.delete(ptyId);
       if (this.recomputeAgainAfter.delete(ptyId)) {

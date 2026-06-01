@@ -522,7 +522,7 @@ function formatElapsedTime(sinceMs: number): string {
 
 function readinessFromSummary(p: PtySummary): PtyReadyInfo {
   const state = p.readyState ?? (typeof p.ready === "boolean" ? (p.ready ? "ready" : "busy") : "unknown");
-  const indicator = p.readyIndicator ?? (state === "ready" ? "ready" : "busy");
+  const indicator = p.readyIndicator ?? (state === "ready" ? "ready" : state === "busy" ? "busy" : "unknown");
   if (p.readyStateChangedAt) ptyStateChangedAt.set(p.id, p.readyStateChangedAt);
   return { state, indicator, reason: String(p.readyReason ?? "") };
 }
@@ -3502,7 +3502,7 @@ function buildRunningPtyItem(p: PtySummary): RunningPtyItem {
   const inputPreview = ptyLastInput.get(p.id) ?? "";
   const readyInfo = ptyReady.get(p.id) ?? readinessFromSummary(p);
   const changedAt = ptyStateChangedAt.get(p.id);
-  const elapsed = changedAt ? formatElapsedTime(changedAt) : "";
+  const elapsed = changedAt && readyInfo.state !== "unknown" ? formatElapsedTime(changedAt) : "";
   const secondaryText = inputPreview ? `> ${inputPreview}` : "";
 
   return {

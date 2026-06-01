@@ -540,6 +540,12 @@ button:disabled {
   animation: spin 0.75s linear infinite;
 }
 
+.pty-item .ready-dot.unknown {
+  background: transparent;
+  border: 2px solid color-mix(in srgb, var(--muted) 55%, transparent);
+  box-shadow: none;
+}
+
 @keyframes spin {
   to {
     transform: rotate(360deg);
@@ -2110,6 +2116,11 @@ button:disabled {
 
   .status-dot.busy {
     background: #f1a15c;
+  }
+
+  .status-dot.unknown {
+    background: transparent;
+    border: 1px solid color-mix(in srgb, var(--muted) 70%, transparent);
   }
 
   .focus-title {

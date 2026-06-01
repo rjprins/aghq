@@ -2,7 +2,7 @@ export type PtyId = string;
 
 export type PtyStatus = "running" | "exited";
 export type PtyReadinessState = "ready" | "busy" | "unknown";
-export type PtyReadinessIndicator = "ready" | "busy";
+export type PtyReadinessIndicator = "ready" | "busy" | "unknown";
 export type TmuxServer = "agmux" | "default";
 
 export type SessionTaskRef = {

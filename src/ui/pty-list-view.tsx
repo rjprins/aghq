@@ -12,7 +12,7 @@ function showMore(key: string): void {
 }
 
 export type ReadyState = "ready" | "busy" | "unknown";
-export type ReadyIndicator = "ready" | "busy";
+export type ReadyIndicator = "ready" | "busy" | "unknown";
 export type PtyDragPlacement = "before" | "after";
 
 export type RunningPtyItem = {

@@ -22,7 +22,7 @@ describe("ReadinessEngine", () => {
     vi.useRealTimers();
   });
 
-  it("enriches list responses from cache without blocking on tmux inspection", async () => {
+  it("enriches list responses from cache while starting background inspection", async () => {
     const summary: PtySummary = {
       id: "pty-1",
       name: "shell",
@@ -52,10 +52,10 @@ describe("ReadinessEngine", () => {
       cwd: "/tmp/project",
       ready: false,
       readyState: "unknown",
-      readyIndicator: "busy",
+      readyIndicator: "unknown",
       readyReason: "startup",
     });
-    expect(tmuxMocks.tmuxPaneInspect).not.toHaveBeenCalled();
-    expect(tmuxMocks.tmuxCapturePaneVisible).not.toHaveBeenCalled();
+    expect(tmuxMocks.tmuxPaneInspect).toHaveBeenCalledTimes(1);
+    expect(tmuxMocks.tmuxCapturePaneVisible).toHaveBeenCalledTimes(1);
   });
 });
