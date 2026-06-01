@@ -150,6 +150,14 @@ body {
     var(--surface-hover)
   );
 }
+
+.sidebar.collapsed .pty-item.ready-unviewed.state-ready {
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--pty-color, var(--accent)) 18%, color-mix(in srgb, var(--ready) 28%, transparent)),
+    color-mix(in srgb, var(--ready) 10%, var(--surface-hover))
+  );
+}
 .sidebar.collapsed .pty-item .row,
 .sidebar.collapsed .pty-item .mainline,
 .sidebar.collapsed .pty-item .primary-row,
@@ -413,6 +421,20 @@ button:disabled {
     color-mix(in srgb, var(--pty-color, var(--accent)) 10%, color-mix(in srgb, var(--ready) 14%, transparent)),
     var(--surface)
   );
+}
+
+.pty-item.ready-unviewed.state-ready {
+  background: linear-gradient(
+    92deg,
+    color-mix(in srgb, var(--pty-color, var(--accent)) 18%, color-mix(in srgb, var(--ready) 24%, transparent)),
+    color-mix(in srgb, var(--ready) 8%, var(--surface))
+  );
+  border-color: color-mix(in srgb, var(--ready) 40%, var(--surface-border));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ready) 22%, transparent);
+}
+
+.pty-item.ready-unviewed.state-ready .ready-dot.ready {
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--ready) 24%, transparent);
 }
 
 .pty-item.state-busy {
@@ -2390,6 +2412,11 @@ button:disabled {
 
   .mobile-session-card.state-ready {
     border-left: 4px solid rgba(91, 191, 127, 0.8);
+  }
+
+  .mobile-session-card.ready-unviewed.state-ready {
+    background: color-mix(in srgb, #5bbf7f 13%, var(--mobile-surface));
+    border-color: color-mix(in srgb, #5bbf7f 40%, rgba(31, 27, 22, 0.12));
   }
 
   .mobile-session-card.state-busy {

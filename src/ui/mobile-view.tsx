@@ -17,6 +17,7 @@ export type MobileRunningSession = {
   readyState: "ready" | "busy" | "unknown";
   readyIndicator: "ready" | "busy" | "unknown";
   readyReason: string;
+  readyUnviewed: boolean;
   elapsed?: string;
   lastInput?: string;
   outputPreview?: string[];
@@ -179,7 +180,7 @@ function renderRunningSessionCard(
     <li
       key={session.id}
       data-pty-id={session.id}
-      className={`mobile-session-card state-${session.readyState}${session.active ? " active" : ""}`}
+      className={`mobile-session-card state-${session.readyState}${session.active ? " active" : ""}${session.readyUnviewed ? " ready-unviewed" : ""}`}
       style={{ "--stagger": `${index * 60}ms` } as Record<string, string>}
       onPointerDown={(ev) => {
         if (!onAfterSelect) return;

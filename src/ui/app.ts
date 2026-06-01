@@ -352,6 +352,7 @@ const ptyInputProcessHints = new Map<string, string>();
 type PtyReadyInfo = { state: PtyReadinessState; indicator: PtyReadinessIndicator; reason: string };
 const ptyReady = new Map<string, PtyReadyInfo>();
 const ptyStateChangedAt = new Map<string, number>();
+const unviewedReadyPtys = new Set<string>();
 const MAX_INPUT_HISTORY = 40;
 
 function loadInputHistoryFromStorage(): Record<string, InputHistoryRecord> | null {
@@ -525,6 +526,10 @@ function readinessFromSummary(p: PtySummary): PtyReadyInfo {
   const indicator = p.readyIndicator ?? (state === "ready" ? "ready" : state === "busy" ? "busy" : "unknown");
   if (p.readyStateChangedAt) ptyStateChangedAt.set(p.id, p.readyStateChangedAt);
   return { state, indicator, reason: String(p.readyReason ?? "") };
+}
+
+function shouldMarkReadyUnviewed(ptyId: string, previous: PtyReadyInfo | undefined, next: PtyReadyInfo): boolean {
+  return ptyId !== activePtyId && previous?.state === "busy" && next.state === "ready";
 }
 
 const pendingHistorySaves = new Set<string>();
@@ -1136,6 +1141,7 @@ function remapPtyState(oldPtyId: string, newPtyId: string): void {
   moveMapValue(pendingResizeByPtyId);
 
   moveSetValue(subscribed);
+  moveSetValue(unviewedReadyPtys);
   moveSetValue(pendingHistorySaves);
   moveSetValue(ptyProviderHistoryLoading);
 
@@ -1171,6 +1177,7 @@ function removeTerm(ptyId: string): void {
   mobileInputDraftByPtyId.delete(ptyId);
   ptyReady.delete(ptyId);
   ptyStateChangedAt.delete(ptyId);
+  unviewedReadyPtys.delete(ptyId);
   subscribed.delete(ptyId);
   pendingResizeByPtyId.delete(ptyId);
   if (desktopHydrationPending?.ptyId === ptyId) {
@@ -1433,10 +1440,20 @@ function onServerMsg(msg: ServerMsg): void {
     const allKnown = new Set(ptys.map((p) => p.id));
     prunePtyInputMeta(allKnown);
     for (const p of ptys) {
-      ptyReady.set(p.id, readinessFromSummary(p));
+      const previousReady = ptyReady.get(p.id);
+      const nextReady = readinessFromSummary(p);
+      ptyReady.set(p.id, nextReady);
+      if (p.id === activePtyId || p.status !== "running" || nextReady.state !== "ready") {
+        unviewedReadyPtys.delete(p.id);
+      } else if (shouldMarkReadyUnviewed(p.id, previousReady, nextReady)) {
+        unviewedReadyPtys.add(p.id);
+      }
     }
     for (const ptyId of ptyReady.keys()) {
       if (!running.has(ptyId)) ptyReady.delete(ptyId);
+    }
+    for (const ptyId of unviewedReadyPtys) {
+      if (!running.has(ptyId)) unviewedReadyPtys.delete(ptyId);
     }
     for (const ptyId of ptyStateChangedAt.keys()) {
       if (!running.has(ptyId)) ptyStateChangedAt.delete(ptyId);
@@ -1490,13 +1507,21 @@ function onServerMsg(msg: ServerMsg): void {
   }
   if (msg.type === "pty_exit") {
     ptyReady.set(msg.ptyId, { state: "busy", indicator: "busy", reason: "exited" });
+    unviewedReadyPtys.delete(msg.ptyId);
     addEvent(`PTY exited: ${msg.ptyId} code=${msg.code ?? "?"} signal=${msg.signal ?? "-"}`);
     refreshList();
     return;
   }
   if (msg.type === "pty_ready") {
-    ptyReady.set(msg.ptyId, { state: msg.state, indicator: msg.indicator, reason: msg.reason });
+    const previousReady = ptyReady.get(msg.ptyId);
+    const nextReady = { state: msg.state, indicator: msg.indicator, reason: msg.reason };
+    ptyReady.set(msg.ptyId, nextReady);
     ptyStateChangedAt.set(msg.ptyId, msg.ts);
+    if (msg.ptyId === activePtyId || msg.state !== "ready") {
+      unviewedReadyPtys.delete(msg.ptyId);
+    } else if (shouldMarkReadyUnviewed(msg.ptyId, previousReady, nextReady)) {
+      unviewedReadyPtys.add(msg.ptyId);
+    }
     const p = ptys.find((x) => x.id === msg.ptyId);
     if (p) {
       if (msg.cwd != null) p.cwd = msg.cwd;
@@ -3509,6 +3534,7 @@ function buildRunningPtyItem(p: PtySummary): RunningPtyItem {
     id: p.id,
     color: ptyColor(p.id),
     active: p.id === activePtyId,
+    readyUnviewed: unviewedReadyPtys.has(p.id) && p.id !== activePtyId,
     readyState: readyInfo.state,
     readyIndicator: readyInfo.indicator,
     readyReason: readyInfo.reason,
@@ -3656,6 +3682,7 @@ function buildMobileRunningSession(p: PtySummary): MobileRunningSession {
     readyState: item.readyState,
     readyIndicator: item.readyIndicator,
     readyReason: item.readyReason,
+    readyUnviewed: item.readyUnviewed,
     elapsed: item.elapsed,
     lastInput,
     outputPreview: getOutputPreviewLines(p.id, 3),
@@ -4544,6 +4571,7 @@ function setActive(ptyId: string): void {
   pendingActivePtyId = null;
 
   activePtyId = ptyId;
+  unviewedReadyPtys.delete(ptyId);
   saveActivePty(ptyId);
   ensureTerm(ptyId);
   updateTerminalVisibility();

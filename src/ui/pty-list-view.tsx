@@ -19,6 +19,7 @@ export type RunningPtyItem = {
   id: string;
   color: string;
   active: boolean;
+  readyUnviewed: boolean;
   readyState: ReadyState;
   readyIndicator: ReadyIndicator;
   readyReason: string;
@@ -265,7 +266,7 @@ function PtyItemRow(
   return (
     <li
       key={item.id}
-      className={`pty-item reorderable state-${item.readyState}${item.active ? " active" : ""}`}
+      className={`pty-item reorderable state-${item.readyState}${item.active ? " active" : ""}${item.readyUnviewed ? " ready-unviewed" : ""}`}
       data-pty-id={item.id}
       data-pty-group-key={groupKey}
       style={ptyStyle(item.color)}
