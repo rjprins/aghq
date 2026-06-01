@@ -143,14 +143,6 @@ body {
   box-shadow: 0 0 8px color-mix(in srgb, var(--accent) 30%, transparent);
   background: var(--surface-hover);
 }
-.sidebar.collapsed .pty-item.state-ready {
-  background: linear-gradient(
-    135deg,
-    color-mix(in srgb, var(--ready) 15%, var(--surface-hover)),
-    var(--surface-hover)
-  );
-}
-
 .sidebar.collapsed .pty-item.ready-unviewed.state-ready {
   background: linear-gradient(
     135deg,
@@ -405,22 +397,6 @@ button:disabled {
   border-left: 2px solid var(--pty-color, var(--accent));
   box-shadow: none;
   background: var(--surface-hover);
-}
-
-.pty-item.state-ready {
-  background: linear-gradient(
-    92deg,
-    color-mix(in srgb, var(--ready) 10%, var(--surface)),
-    var(--surface)
-  );
-}
-
-.pty-item.active.state-ready {
-  background: linear-gradient(
-    92deg,
-    color-mix(in srgb, var(--ready) 14%, var(--surface-hover)),
-    var(--surface-hover)
-  );
 }
 
 .pty-item.ready-unviewed.state-ready {
@@ -2406,10 +2382,6 @@ button:disabled {
   .mobile-session-card.active {
     border-color: rgba(31, 27, 22, 0.3);
     box-shadow: 0 14px 28px rgba(31, 27, 22, 0.12);
-  }
-
-  .mobile-session-card.state-ready {
-    border-left: 4px solid rgba(91, 191, 127, 0.8);
   }
 
   .mobile-session-card.ready-unviewed.state-ready {
