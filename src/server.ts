@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import Fastify from "fastify";
 import { execFile } from "node:child_process";
 import process from "node:process";

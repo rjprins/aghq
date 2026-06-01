@@ -1,8 +1,22 @@
 # agmux
 
+[![CI](https://github.com/rjprins/agmux/actions/workflows/ci.yml/badge.svg)](https://github.com/rjprins/agmux/actions/workflows/ci.yml)
+[![npm](https://img.shields.io/npm/v/%40rjprins%2Fagmux)](https://www.npmjs.com/package/@rjprins/agmux)
+[![node](https://img.shields.io/node/v/%40rjprins%2Fagmux)](https://nodejs.org)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 Local web UI for managing agent terminal sessions. Streams PTY output to the browser over WebSockets, with customizable triggers and Claude/Codex readiness callbacks backed by tmux pane inference fallback.
 
 Built for managing [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Codex](https://github.com/openai/codex), and other CLI-based coding agents — but works with any terminal program.
+
+<p align="center">
+  <img src="docs/screenshot.png" alt="agmux web UI" width="820">
+</p>
+
+<!--
+  docs/screenshot.png is a generated placeholder. Drop a real screenshot at the
+  same path (ideally ~1200px wide) and it will appear here — no README edit needed.
+-->
 
 ## Features
 
@@ -14,42 +28,69 @@ Built for managing [Claude Code](https://docs.anthropic.com/en/docs/claude-code)
 - **Themeable UI** — 5 built-in themes
 - **Multi-worktree support** — manage multiple git worktrees from one interface
 
-## Prerequisites
+## Install
 
-- **Node.js** v22+
-- **npm**
-- **tmux** (for persistent sessions — the default backend)
-- **C++ toolchain** (`build-essential` on Debian/Ubuntu) for native addons
+agmux is distributed on npm as `@rjprins/agmux` and installs an `agmux` command.
 
-On Ubuntu/Debian:
+**Prerequisites:** **Node.js 22+**, **tmux** (the default session backend), and a
+**C++ toolchain** — agmux's `better-sqlite3` and `node-pty` dependencies build
+native addons during install.
+
 ```sh
+# Debian/Ubuntu
 sudo apt install tmux build-essential
+# macOS
+brew install tmux   # plus the Xcode Command Line Tools: xcode-select --install
 ```
 
 See [docs/dependencies.md](docs/dependencies.md) for the full list.
 
-## Quick Start
+Then install agmux globally and run it:
+
+```sh
+npm install -g @rjprins/agmux
+agmux
+```
+
+…or run it without installing:
+
+```sh
+npx @rjprins/agmux
+```
+
+agmux serves the UI at `http://127.0.0.1:4821` and opens your browser (set
+`AGMUX_NO_OPEN=1` to skip). **Run it from the project directory you want to
+manage** — the session database (`data/agmux.db`) and triggers
+(`triggers/index.js`) are resolved relative to the current directory, and git
+worktree detection uses the surrounding repository.
+
+If the port is taken, pick another:
+
+```sh
+PORT=4823 agmux
+```
+
+> **Node version note:** native dependencies ship prebuilt binaries for current
+> Node releases (22, 24). On a brand-new major before those prebuilds exist, the
+> install will fall back to compiling from source (and may fail until the
+> dependencies add support).
+
+## Run from source
+
+To develop agmux or run it from a checkout:
 
 ```sh
 git clone https://github.com/rjprins/agmux.git
 cd agmux
 npm install
-npm run dev
+npm run dev      # build the UI + run with auto-rebuild and auto-reload
 ```
 
-This starts the app with auto-rebuild and auto-reload.
+App: `http://127.0.0.1:4821`. Other commands:
 
-- App: `http://127.0.0.1:4821`
-
-If you get "address already in use", pick a different port:
-```sh
-PORT=4823 npm run dev
-```
-
-Start app only (no file watching):
-```sh
-npm run app
-```
+- `npm run app` — build the UI and run once (no file watching)
+- `npm run build` — compile to `dist/` and bundle the UI into `public/`
+- `npm start` — run the compiled build from `dist/`
 
 ## Triggers
 

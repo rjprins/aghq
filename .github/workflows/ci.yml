@@ -10,12 +10,19 @@ jobs:
   build-and-test:
     runs-on: ubuntu-latest
 
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [22, 24]
+
+    name: build-and-test (node ${{ matrix.node-version }})
+
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: ${{ matrix.node-version }}
           cache: npm
 
       - name: Install system dependencies
@@ -29,3 +36,21 @@ jobs:
 
       - name: Unit tests
         run: npm test
+
+      - name: Verify package contents
+        run: npm pack --dry-run
+
+      - name: Smoke test (bin serves UI from a foreign working directory)
+        run: |
+          cd "$RUNNER_TEMP"
+          AGMUX_NO_OPEN=1 PORT=4899 node "$GITHUB_WORKSPACE/dist/server.js" &
+          server_pid=$!
+          ok=
+          for _ in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:4899/ -o index.html; then ok=1; break; fi
+            sleep 1
+          done
+          kill "$server_pid" 2>/dev/null || true
+          if [ -z "$ok" ]; then echo "server did not respond"; exit 1; fi
+          grep -qi "<title" index.html
+          echo "Smoke OK: agmux served its bundled UI from $(pwd) (not the package dir)"
