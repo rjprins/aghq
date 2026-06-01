@@ -138,15 +138,15 @@ body {
 }
 .sidebar.collapsed .pty-item.active {
   opacity: 1;
-  border-color: color-mix(in srgb, var(--pty-color, var(--accent)) 50%, var(--surface-border));
-  border-left-color: color-mix(in srgb, var(--pty-color, var(--accent)) 50%, var(--surface-border));
-  box-shadow: 0 0 8px color-mix(in srgb, var(--pty-color, var(--accent)) 40%, transparent);
-  background: color-mix(in srgb, var(--pty-color, var(--accent)) 20%, var(--surface-hover));
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--surface-border));
+  border-left-color: color-mix(in srgb, var(--accent) 45%, var(--surface-border));
+  box-shadow: 0 0 8px color-mix(in srgb, var(--accent) 30%, transparent);
+  background: var(--surface-hover);
 }
 .sidebar.collapsed .pty-item.state-ready {
   background: linear-gradient(
     135deg,
-    color-mix(in srgb, var(--pty-color, var(--accent)) 7%, color-mix(in srgb, var(--ready) 15%, transparent)),
+    color-mix(in srgb, var(--ready) 15%, var(--surface-hover)),
     var(--surface-hover)
   );
 }
@@ -154,7 +154,7 @@ body {
 .sidebar.collapsed .pty-item.ready-unviewed.state-ready {
   background: linear-gradient(
     135deg,
-    color-mix(in srgb, var(--pty-color, var(--accent)) 18%, color-mix(in srgb, var(--ready) 28%, transparent)),
+    color-mix(in srgb, var(--ready) 28%, var(--surface-hover)),
     color-mix(in srgb, var(--ready) 10%, var(--surface-hover))
   );
 }
@@ -401,16 +401,16 @@ button:disabled {
 
 .pty-item.active {
   opacity: 1;
-  border-color: color-mix(in srgb, var(--pty-color, var(--accent)) 50%, var(--surface-border));
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--surface-border));
   border-left: 2px solid var(--pty-color, var(--accent));
   box-shadow: none;
-  background: color-mix(in srgb, var(--pty-color, var(--accent)) 8%, var(--surface));
+  background: var(--surface-hover);
 }
 
 .pty-item.state-ready {
   background: linear-gradient(
     92deg,
-    color-mix(in srgb, var(--pty-color, var(--accent)) 7%, color-mix(in srgb, var(--ready) 10%, transparent)),
+    color-mix(in srgb, var(--ready) 10%, var(--surface)),
     var(--surface)
   );
 }
@@ -418,15 +418,15 @@ button:disabled {
 .pty-item.active.state-ready {
   background: linear-gradient(
     92deg,
-    color-mix(in srgb, var(--pty-color, var(--accent)) 10%, color-mix(in srgb, var(--ready) 14%, transparent)),
-    var(--surface)
+    color-mix(in srgb, var(--ready) 14%, var(--surface-hover)),
+    var(--surface-hover)
   );
 }
 
 .pty-item.ready-unviewed.state-ready {
   background: linear-gradient(
     92deg,
-    color-mix(in srgb, var(--pty-color, var(--accent)) 18%, color-mix(in srgb, var(--ready) 24%, transparent)),
+    color-mix(in srgb, var(--ready) 24%, var(--surface)),
     color-mix(in srgb, var(--ready) 8%, var(--surface))
   );
   border-color: color-mix(in srgb, var(--ready) 40%, var(--surface-border));
@@ -686,8 +686,6 @@ button:disabled {
 
 .process-badge {
   color: color-mix(in srgb, var(--text) 70%, var(--muted));
-  background: color-mix(in srgb, var(--pty-color, var(--accent)) 12%, var(--surface-hover));
-  border-color: color-mix(in srgb, var(--pty-color, var(--accent)) 30%, var(--surface-border));
   max-width: 140px;
 }
 
