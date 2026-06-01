@@ -1,4 +1,4 @@
-minimum release checklist for agmux:
+minimum release checklist for aghq:
 
 ---
 
@@ -60,7 +60,7 @@ Stateless tools feel like toys.
 Documentation
 README with only this:
 
-* what agmux is (one sentence)
+* what aghq is (one sentence)
 * screenshot
 * install instructions (very simple)
 * how to launch agent

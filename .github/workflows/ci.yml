@@ -53,4 +53,4 @@ jobs:
           kill "$server_pid" 2>/dev/null || true
           if [ -z "$ok" ]; then echo "server did not respond"; exit 1; fi
           grep -qi "<title" index.html
-          echo "Smoke OK: agmux served its bundled UI from $(pwd) (not the package dir)"
+          echo "Smoke OK: aghq served its bundled UI from $(pwd) (not the package dir)"

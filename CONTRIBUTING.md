@@ -1,4 +1,4 @@
-# Contributing to agmux
+# Contributing to aghq
 
 Thanks for your interest in contributing! This guide will help you get started.
 
@@ -20,8 +20,8 @@ See [docs/dependencies.md](docs/dependencies.md) for the full dependency list.
 
 ```sh
 # Clone the repo
-git clone https://github.com/rjprins/agmux.git
-cd agmux
+git clone https://github.com/rjprins/aghq.git
+cd aghq
 
 # Install dependencies
 npm install
