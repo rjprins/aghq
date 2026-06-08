@@ -64,8 +64,8 @@ export const WS_ALLOWED_ORIGINS = new Set(
       .filter((v) => v.length > 0),
   ].map((v) => v.toLowerCase()),
 );
-// Azure DevOps PR polling (opt-in). Uses the local `az` CLI for auth.
-export const AZURE_PR_ENABLED = /^(1|true|yes|on)$/i.test((process.env.AGMUX_AZURE_PR ?? "").trim());
+// Azure DevOps PR polling (on by default; disable with AGMUX_AZURE_PR=0). Uses the local `az` CLI.
+export const AZURE_PR_ENABLED = !/^(0|false|no|off)$/i.test((process.env.AGMUX_AZURE_PR ?? "").trim());
 export const AZURE_PR_POLL_INTERVAL_MS = Math.max(
   10_000,
   Number(process.env.AGMUX_AZURE_PR_POLL_INTERVAL_MS ?? "60000") || 60_000,
