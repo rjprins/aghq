@@ -1,6 +1,6 @@
 ---
 name: Bug Report
-about: Report a bug to help improve aghq
+about: Report a bug to help improve agmux
 title: ""
 labels: bug
 ---

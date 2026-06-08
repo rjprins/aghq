@@ -42,11 +42,11 @@ function envArgs() {
 
 function installCodex() {
   ensureCommand("codex");
-  run("codex", ["mcp", "remove", "aghq"], { quiet: true, optional: true });
+  run("codex", ["mcp", "remove", "agmux"], { quiet: true, optional: true });
   run("codex", [
     "mcp",
     "add",
-    "aghq",
+    "agmux",
     ...envArgs(),
     "--",
     "node",
@@ -56,7 +56,7 @@ function installCodex() {
 
 function installClaude() {
   ensureCommand("claude");
-  run("claude", ["mcp", "remove", "aghq"], { quiet: true, optional: true });
+  run("claude", ["mcp", "remove", "agmux"], { quiet: true, optional: true });
   const config = {
     type: "stdio",
     command: "node",
@@ -71,7 +71,7 @@ function installClaude() {
     "add-json",
     "--scope",
     "user",
-    "aghq",
+    "agmux",
     JSON.stringify(config),
   ]);
 }
@@ -86,6 +86,6 @@ run("npm", ["run", "build"]);
 if (target === "all" || target === "codex") installCodex();
 if (target === "all" || target === "claude") installClaude();
 
-console.log(`aghq MCP installed for ${target === "all" ? "Codex and Claude" : target}.`);
+console.log(`agmux MCP installed for ${target === "all" ? "Codex and Claude" : target}.`);
 console.log(`AGMUX_API_BASE=${apiBase}`);
-if (!token) console.log("AGMUX_TOKEN was not set; this is fine when aghq token auth is disabled.");
+if (!token) console.log("AGMUX_TOKEN was not set; this is fine when agmux token auth is disabled.");

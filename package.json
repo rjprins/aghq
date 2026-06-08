@@ -1,19 +1,16 @@
 {
-  "name": "aghq",
+  "name": "agmux",
   "version": "1.0.0",
+  "private": true,
   "description": "Local web UI for managing agent terminal sessions with live streaming, triggers, and readiness detection",
   "main": "dist/server.js",
-  "bin": {
-    "aghq": "dist/server.js",
-    "aghq-mcp": "dist/mcp/server.js"
-  },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/rjprins/aghq.git"
+    "url": "git+https://github.com/rjprins/agmux.git"
   },
-  "homepage": "https://github.com/rjprins/aghq",
+  "homepage": "https://github.com/rjprins/agmux",
   "bugs": {
-    "url": "https://github.com/rjprins/aghq/issues"
+    "url": "https://github.com/rjprins/agmux/issues"
   },
   "author": "Rutger Prins",
   "scripts": {
@@ -31,24 +28,7 @@
     "e2e:headed": "playwright test --headed",
     "e2e:ui": "playwright test --ui",
     "e2e:debug": "PWDEBUG=1 playwright test --headed",
-    "test": "vitest run",
-    "prepublishOnly": "npm run build"
-  },
-  "files": [
-    "dist",
-    "public/index.html",
-    "public/styles.css",
-    "public/app.js",
-    "public/xterm.css",
-    "scripts/agent-ready.mjs",
-    "scripts/install-mcp.mjs",
-    "triggers",
-    "docs",
-    "README.md",
-    "LICENSE"
-  ],
-  "engines": {
-    "node": ">=22"
+    "test": "vitest run"
   },
   "keywords": [
     "terminal",
@@ -56,15 +36,7 @@
     "agent",
     "tmux",
     "websocket",
-    "cli",
-    "claude-code",
-    "codex",
-    "coding-agent",
-    "ai-agents",
-    "mcp",
-    "web-terminal",
-    "fastify",
-    "preact"
+    "cli"
   ],
   "license": "MIT",
   "type": "module",

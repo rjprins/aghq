@@ -1,22 +1,8 @@
-# aghq
-
-[![CI](https://github.com/rjprins/aghq/actions/workflows/ci.yml/badge.svg)](https://github.com/rjprins/aghq/actions/workflows/ci.yml)
-[![npm](https://img.shields.io/npm/v/aghq)](https://www.npmjs.com/package/aghq)
-[![node](https://img.shields.io/node/v/aghq)](https://nodejs.org)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+# agmux
 
 Local web UI for managing agent terminal sessions. Streams PTY output to the browser over WebSockets, with customizable triggers and Claude/Codex readiness callbacks backed by tmux pane inference fallback.
 
 Built for managing [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Codex](https://github.com/openai/codex), and other CLI-based coding agents — but works with any terminal program.
-
-<p align="center">
-  <img src="docs/screenshot.png" alt="aghq web UI" width="820">
-</p>
-
-<!--
-  docs/screenshot.png is a generated placeholder. Drop a real screenshot at the
-  same path (ideally ~1200px wide) and it will appear here — no README edit needed.
--->
 
 ## Features
 
@@ -28,69 +14,42 @@ Built for managing [Claude Code](https://docs.anthropic.com/en/docs/claude-code)
 - **Themeable UI** — 5 built-in themes
 - **Multi-worktree support** — manage multiple git worktrees from one interface
 
-## Install
+## Prerequisites
 
-aghq is distributed on npm as `aghq` and installs an `aghq` command.
+- **Node.js** v22+
+- **npm**
+- **tmux** (for persistent sessions — the default backend)
+- **C++ toolchain** (`build-essential` on Debian/Ubuntu) for native addons
 
-**Prerequisites:** **Node.js 22+**, **tmux** (the default session backend), and a
-**C++ toolchain** — aghq's `better-sqlite3` and `node-pty` dependencies build
-native addons during install.
-
+On Ubuntu/Debian:
 ```sh
-# Debian/Ubuntu
 sudo apt install tmux build-essential
-# macOS
-brew install tmux   # plus the Xcode Command Line Tools: xcode-select --install
 ```
 
 See [docs/dependencies.md](docs/dependencies.md) for the full list.
 
-Then install aghq globally and run it:
+## Quick Start
 
 ```sh
-npm install -g aghq
-aghq
-```
-
-…or run it without installing:
-
-```sh
-npx aghq
-```
-
-aghq serves the UI at `http://127.0.0.1:4821` and opens your browser (set
-`AGMUX_NO_OPEN=1` to skip). **Run it from the project directory you want to
-manage** — the session database (`data/agmux.db`) and triggers
-(`triggers/index.js`) are resolved relative to the current directory, and git
-worktree detection uses the surrounding repository.
-
-If the port is taken, pick another:
-
-```sh
-PORT=4823 aghq
-```
-
-> **Node version note:** native dependencies ship prebuilt binaries for current
-> Node releases (22, 24). On a brand-new major before those prebuilds exist, the
-> install will fall back to compiling from source (and may fail until the
-> dependencies add support).
-
-## Run from source
-
-To develop aghq or run it from a checkout:
-
-```sh
-git clone https://github.com/rjprins/aghq.git
-cd aghq
+git clone https://github.com/rjprins/agmux.git
+cd agmux
 npm install
-npm run dev      # build the UI + run with auto-rebuild and auto-reload
+npm run dev
 ```
 
-App: `http://127.0.0.1:4821`. Other commands:
+This starts the app with auto-rebuild and auto-reload.
 
-- `npm run app` — build the UI and run once (no file watching)
-- `npm run build` — compile to `dist/` and bundle the UI into `public/`
-- `npm start` — run the compiled build from `dist/`
+- App: `http://127.0.0.1:4821`
+
+If you get "address already in use", pick a different port:
+```sh
+PORT=4823 npm run dev
+```
+
+Start app only (no file watching):
+```sh
+npm run app
+```
 
 ## Triggers
 
@@ -114,20 +73,20 @@ Use the current UI API surface directly for agents:
 
 ## Claude / Codex readiness
 
-Claude and Codex callbacks are the preferred readiness signal. If those callbacks are not configured or do not fire, aghq falls back to the original tmux pane-based readiness inference.
+Claude and Codex callbacks are the preferred readiness signal. If those callbacks are not configured or do not fire, agmux falls back to the original tmux pane-based readiness inference.
 
 A PTY becomes `ready` immediately when:
 
 - Claude Code fires a `Notification` hook such as `idle_prompt` or `permission_prompt`
 - Codex runs its `notify` callback after a turn completes
 
-Without an explicit callback, aghq still infers readiness from visible tmux pane state:
+Without an explicit callback, agmux still infers readiness from visible tmux pane state:
 
 - changing pane content keeps the PTY `busy`
 - a stable prompt long enough marks the PTY `ready`
 - visible permission prompts also count as `ready`
 
-Every aghq-created shell exports these variables:
+Every agmux-created shell exports these variables:
 
 - `AGMUX_PTY_ID`
 - `AGMUX_TMUX_SESSION`
@@ -167,10 +126,10 @@ Example Claude hooks:
 Example Codex config:
 
 ```toml
-notify = ["node", "/absolute/path/to/aghq/scripts/agent-ready.mjs", "codex", "turn_complete"]
+notify = ["node", "/absolute/path/to/agmux/scripts/agent-ready.mjs", "codex", "turn_complete"]
 ```
 
-Using the exported helper is preferred inside aghq-created shells because it already knows the current PTY and auth token.
+Using the exported helper is preferred inside agmux-created shells because it already knows the current PTY and auth token.
 
 ## Configuration
 
@@ -200,7 +159,7 @@ Environment variables:
 
 ### Optional auth token
 
-By default, aghq does **not** require an auth token.
+By default, agmux does **not** require an auth token.
 
 To enable auth explicitly, set `AGMUX_TOKEN_ENABLED=1`:
 
@@ -211,7 +170,7 @@ AGMUX_TOKEN_ENABLED=1 npm run app
 With `AGMUX_TOKEN_ENABLED=1`:
 
 - if `AGMUX_TOKEN` is set, that value is used
-- if `AGMUX_TOKEN` is unset, aghq generates a random token at startup
+- if `AGMUX_TOKEN` is unset, agmux generates a random token at startup
 
 When token auth is enabled:
 
@@ -255,7 +214,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and guidelines.
 
 ## Security
 
-See [SECURITY.md](SECURITY.md) for reporting vulnerabilities. aghq runs terminal sessions — please report security issues responsibly.
+See [SECURITY.md](SECURITY.md) for reporting vulnerabilities. agmux runs terminal sessions — please report security issues responsibly.
 
 ## License
 

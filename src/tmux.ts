@@ -17,7 +17,7 @@ export type { TmuxServer, TmuxSessionCheck, TmuxSessionInfo };
 function debugActiveProcess(details: Record<string, unknown>): void {
   if (!DEBUG_ACTIVE_PROCESS) return;
   try {
-    console.log("[aghq][active-process]", JSON.stringify(details));
+    console.log("[agmux][active-process]", JSON.stringify(details));
   } catch {
     // ignore logging issues
   }

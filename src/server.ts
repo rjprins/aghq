@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 import Fastify from "fastify";
 import { execFile } from "node:child_process";
 import process from "node:process";
@@ -131,17 +130,17 @@ await fastify.listen({ host: HOST, port: PORT });
 
 const appUrl = `http://${HOST === "0.0.0.0" || HOST === "::" ? "127.0.0.1" : HOST}:${PORT}`;
 const appUrlWithToken = AUTH_ENABLED ? `${appUrl}/?token=${encodeURIComponent(AUTH_TOKEN)}` : appUrl;
-console.log(`[aghq] Ready at ${appUrl}`);
-console.log(`[aghq] Log level: ${LOG_LEVEL}`);
+console.log(`[agmux] Ready at ${appUrl}`);
+console.log(`[agmux] Log level: ${LOG_LEVEL}`);
 if (AUTH_ENABLED) {
-  console.log(`[aghq] Auth token enabled via AGMUX_TOKEN_ENABLED=1 (${AUTH_TOKEN_SOURCE}).`);
-  console.log(`[aghq] Token: ${AUTH_TOKEN}`);
-  console.log(`[aghq] URL with token: ${appUrlWithToken}`);
+  console.log(`[agmux] Auth token enabled via AGMUX_TOKEN_ENABLED=1 (${AUTH_TOKEN_SOURCE}).`);
+  console.log(`[agmux] Token: ${AUTH_TOKEN}`);
+  console.log(`[agmux] URL with token: ${appUrlWithToken}`);
   if (AUTH_TOKEN_SOURCE === "generated") {
-    console.log("[aghq] Token was generated because AGMUX_TOKEN was unset.");
+    console.log("[agmux] Token was generated because AGMUX_TOKEN was unset.");
   }
 } else {
-  console.log("[aghq] Auth token disabled (opt-in). Set AGMUX_TOKEN_ENABLED=1 to enable API/WS auth.");
+  console.log("[agmux] Auth token disabled (opt-in). Set AGMUX_TOKEN_ENABLED=1 to enable API/WS auth.");
 }
 
 if (process.env.AGMUX_NO_OPEN !== "1") {

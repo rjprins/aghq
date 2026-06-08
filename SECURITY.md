@@ -2,9 +2,9 @@
 
 ## Important Context
 
-aghq manages PTY (pseudo-terminal) sessions and streams terminal output over WebSockets. By design, it provides shell access to the local machine. This makes security considerations especially important.
+agmux manages PTY (pseudo-terminal) sessions and streams terminal output over WebSockets. By design, it provides shell access to the local machine. This makes security considerations especially important.
 
-**aghq binds to `127.0.0.1` (localhost) by default** and generates a random auth token on each start. These defaults are intentional — do not expose aghq to the public internet.
+**agmux binds to `127.0.0.1` (localhost) by default** and generates a random auth token on each start. These defaults are intentional — do not expose agmux to the public internet.
 
 ## Reporting a Vulnerability
 
@@ -27,7 +27,7 @@ The following are in scope for security reports:
 
 The following are **not** in scope:
 
-- Issues that require the attacker to already have local shell access (aghq is a local tool)
+- Issues that require the attacker to already have local shell access (agmux is a local tool)
 - Denial-of-service on localhost
 - Issues in upstream dependencies (report those to the respective projects)
 

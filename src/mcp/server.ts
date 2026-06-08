@@ -66,7 +66,7 @@ async function requestJson(path: string, init: RequestInit = {}): Promise<unknow
       const message = typeof body === "object" && body && "error" in body
         ? String((body as { error: unknown }).error)
         : text || res.statusText;
-      throw new Error(`aghq HTTP ${res.status}: ${message}`);
+      throw new Error(`agmux HTTP ${res.status}: ${message}`);
     }
     return body;
   } finally {
@@ -86,7 +86,7 @@ function sendWsMessage(message: JsonObject): Promise<JsonObject> {
     const ws = new WebSocket(wsUrl(), { handshakeTimeout: REQUEST_TIMEOUT_MS });
     const timer = setTimeout(() => {
       ws.close();
-      reject(new Error("timed out connecting to aghq websocket"));
+      reject(new Error("timed out connecting to agmux websocket"));
     }, REQUEST_TIMEOUT_MS);
 
     ws.on("open", () => {
@@ -113,7 +113,7 @@ function requestSnapshot(ptyId: string, lines: number): Promise<JsonObject> {
     const ws = new WebSocket(wsUrl(), { handshakeTimeout: REQUEST_TIMEOUT_MS });
     const timer = setTimeout(() => {
       ws.close();
-      reject(new Error("timed out waiting for aghq snapshot"));
+      reject(new Error("timed out waiting for agmux snapshot"));
     }, REQUEST_TIMEOUT_MS);
 
     ws.on("open", () => {
@@ -146,20 +146,20 @@ function requestSnapshot(ptyId: string, lines: number): Promise<JsonObject> {
 }
 
 const server = new McpServer({
-  name: "aghq",
+  name: "agmux",
   version: "1.0.0",
 });
 
 server.registerTool("list_ptys", {
-  title: "List aghq PTYs",
-  description: "List active and recent aghq terminal sessions, including PTY IDs needed by other tools.",
+  title: "List agmux PTYs",
+  description: "List active and recent agmux terminal sessions, including PTY IDs needed by other tools.",
 }, async () => asJsonToolResult(await requestJson("/api/ptys")));
 
 server.registerTool("send_input", {
   title: "Send terminal input",
-  description: "Write raw input to an aghq PTY. By default this submits the input with Enter.",
+  description: "Write raw input to an agmux PTY. By default this submits the input with Enter.",
   inputSchema: {
-    ptyId: z.string().min(1).describe("Target aghq PTY ID, for example pty_abc123."),
+    ptyId: z.string().min(1).describe("Target agmux PTY ID, for example pty_abc123."),
     data: z.string().max(64 * 1024).describe("Raw terminal input to write."),
     appendEnter: z.boolean().default(true).describe("Append carriage return if data does not already end with Enter."),
   },
@@ -172,16 +172,16 @@ server.registerTool("send_input", {
 
 server.registerTool("snapshot", {
   title: "Capture PTY snapshot",
-  description: "Capture recent visible/history text from an aghq PTY.",
+  description: "Capture recent visible/history text from an agmux PTY.",
   inputSchema: {
-    ptyId: z.string().min(1).describe("Target aghq PTY ID."),
+    ptyId: z.string().min(1).describe("Target agmux PTY ID."),
     lines: z.number().int().min(1).max(20_000).default(200).describe("Number of lines to capture."),
   },
 }, async ({ ptyId, lines }) => asJsonToolResult(await requestSnapshot(ptyId, lines)));
 
 server.registerTool("spawn_shell", {
   title: "Spawn shell",
-  description: "Create or attach a shell PTY in the aghq tmux session.",
+  description: "Create or attach a shell PTY in the agmux tmux session.",
 }, async () => asJsonToolResult(await requestJson("/api/ptys/shell", { method: "POST" })));
 
 server.registerTool("launch_agent", {
@@ -204,7 +204,7 @@ server.registerTool("launch_agent", {
 
 server.registerTool("attach_tmux", {
   title: "Attach tmux session",
-  description: "Attach an existing tmux session through aghq.",
+  description: "Attach an existing tmux session through agmux.",
   inputSchema: {
     name: z.string().min(1).describe("tmux session/window target name."),
     server: z.enum(["agmux", "default"]).optional().describe("tmux server to search."),
@@ -218,9 +218,9 @@ server.registerTool("attach_tmux", {
 
 server.registerTool("kill_pty", {
   title: "Kill PTY",
-  description: "Kill an aghq PTY and its tmux window when applicable.",
+  description: "Kill an agmux PTY and its tmux window when applicable.",
   inputSchema: {
-    ptyId: z.string().min(1).describe("Target aghq PTY ID."),
+    ptyId: z.string().min(1).describe("Target agmux PTY ID."),
   },
 }, async ({ ptyId }) => {
   return asJsonToolResult(await requestJson(`/api/ptys/${encodeURIComponent(ptyId)}/kill`, { method: "POST" }));
@@ -228,9 +228,9 @@ server.registerTool("kill_pty", {
 
 server.registerTool("rename_pty", {
   title: "Rename PTY",
-  description: "Rename an aghq PTY session.",
+  description: "Rename an agmux PTY session.",
   inputSchema: {
-    ptyId: z.string().min(1).describe("Target aghq PTY ID."),
+    ptyId: z.string().min(1).describe("Target agmux PTY ID."),
     name: z.string().min(1).max(40).describe("New display name."),
   },
 }, async ({ ptyId, name }) => {
@@ -247,7 +247,7 @@ server.registerTool("list_agent_sessions", {
 
 server.registerTool("restore_agent_session", {
   title: "Restore agent session",
-  description: "Restore a discovered Claude, Codex, or Pi session into a new aghq PTY.",
+  description: "Restore a discovered Claude, Codex, or Pi session into a new agmux PTY.",
   inputSchema: {
     provider: z.enum(["claude", "codex", "pi"]).describe("Agent provider."),
     sessionId: z.string().min(1).describe("Provider session ID."),
@@ -266,7 +266,7 @@ server.registerTool("restore_agent_session", {
 async function main(): Promise<void> {
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error(`aghq MCP server connected to ${baseUrl().toString()}`);
+  console.error(`agmux MCP server connected to ${baseUrl().toString()}`);
 }
 
 main().catch((err: unknown) => {
