@@ -193,6 +193,8 @@ server.registerTool("launch_agent", {
     projectRoot: z.string().optional().describe("Project root used when creating a new worktree."),
     branch: z.string().optional().describe("Branch name when worktree is __new__."),
     baseBranch: z.string().optional().describe("Base branch when worktree is __new__."),
+    name: z.string().optional().describe("Display name for the new session."),
+    initialInput: z.string().optional().describe("First prompt sent to the agent on launch, e.g. a slash command to run."),
     flags: z.record(z.string(), z.union([z.string(), z.boolean()])).optional().describe("Agent CLI flags."),
   },
 }, async (args) => {

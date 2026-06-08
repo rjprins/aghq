@@ -80,6 +80,11 @@ export function agentCommand(agent: string, flags: Record<string, string | boole
   return parts.join(" ");
 }
 
+// Single-quote a string for safe inclusion in a shell command line.
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
 export function registerPtyRoutes(deps: PtyRoutesDeps): void {
   const { fastify, store, agentSessions, runtime, worktrees, defaultBaseBranch, agmuxSession } = deps;
   const CODEX_ATTACH_POLL_MS = 750;
@@ -246,6 +251,9 @@ export function registerPtyRoutes(deps: PtyRoutesDeps): void {
       reply.code(400);
       return { error: "worktree is required" };
     }
+    // Optional: caller-supplied display name and an initial prompt to send the agent.
+    const requestedName = typeof body.name === "string" ? body.name.trim().slice(0, 80) : "";
+    const initialInput = typeof body.initialInput === "string" ? body.initialInput : "";
 
     let launchTaskRef: { taskRef: SessionTaskRef; worktreePath: string | null } | null = null;
     if (body.taskRef != null) {
@@ -304,7 +312,7 @@ export function registerPtyRoutes(deps: PtyRoutesDeps): void {
     const tmuxTarget = await tmuxCreateWindow(SESSION_NAME, shell, cwd);
     const { linkedSession, attachArgs } = await tmuxCreateLinkedSession(tmuxTarget);
 
-    const name = agent !== "shell" ? agent : `shell:${path.basename(shell)}`;
+    const name = requestedName || (agent !== "shell" ? agent : `shell:${path.basename(shell)}`);
     const summary = runtime.ptys.spawn({
       name,
       backend: "tmux",
@@ -345,9 +353,11 @@ export function registerPtyRoutes(deps: PtyRoutesDeps): void {
         runtime.readinessEngine.markBusy(summary.id, "agent:launch", agent);
       }
       setTimeout(() => {
-        const cmd = launchProvider === "claude" && launchProviderSessionId
+        const base = launchProvider === "claude" && launchProviderSessionId
           ? `${agentCommand(agent, flags)} --session-id ${launchProviderSessionId}`
           : agentCommand(agent, flags);
+        // Pass initialInput as the agent's first prompt (positional), e.g. a slash command to run.
+        const cmd = initialInput.trim() ? `${base} ${shellQuote(initialInput)}` : base;
         runtime.ptys.write(summary.id, `${shellExports}; unset CLAUDECODE; ${cmd}\n`);
       }, 300);
       if (agent === "codex") {
