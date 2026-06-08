@@ -11,6 +11,24 @@
     }
   ],
   "paths": {
+    "/api/azure-pr/threads": {
+      "get": {
+        "summary": "Fetch the review comment threads for the PR shown on a session",
+        "parameters": [
+          {
+            "name": "ptyId",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": { "description": "OK" },
+          "400": { "description": "Bad request" },
+          "502": { "description": "Upstream (az) failure" }
+        }
+      }
+    },
     "/api/azure-pr/viewed": {
       "post": {
         "summary": "Mark a session's PR as viewed (clears its new-comment flag)",

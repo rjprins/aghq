@@ -3,6 +3,7 @@ import type { FastifyInstance } from "fastify";
 import type { PtySummary } from "../../types.js";
 import type { SqliteStore } from "../../persist/sqlite.js";
 import { parseJsonBody } from "../auth.js";
+import { getPrComments, parseAzurePrUrl } from "../azure-pr.js";
 import { markPrViewed } from "../azure-pr-poller.js";
 
 type AzurePrRoutesDeps = {
@@ -25,5 +26,24 @@ export function registerAzurePrRoutes(deps: AzurePrRoutesDeps): void {
     const pr = (await listPtys()).find((p) => p.id === ptyId)?.pr;
     if (pr) markPrViewed(store, pr.id);
     return { ok: true };
+  });
+
+  // Fetch the actual review comment threads for the PR shown on a session.
+  fastify.get("/api/azure-pr/threads", async (req, reply) => {
+    const q = req.query as Record<string, unknown>;
+    const ptyId = typeof q.ptyId === "string" ? q.ptyId.trim() : "";
+    if (!ptyId) {
+      reply.code(400);
+      return { error: "ptyId is required" };
+    }
+    const pr = (await listPtys()).find((p) => p.id === ptyId)?.pr;
+    const parsed = pr ? parseAzurePrUrl(pr.url) : null;
+    if (!parsed) return { threads: [] };
+    try {
+      return { threads: await getPrComments(parsed.ref, parsed.prId) };
+    } catch (err) {
+      reply.code(502);
+      return { error: `failed to fetch PR comments: ${String(err)}` };
+    }
   });
 }

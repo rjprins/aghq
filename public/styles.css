@@ -816,10 +816,7 @@ button:disabled {
 
 /* PR context bar (below the history panel) + sidebar new-comment marker. */
 .pr-context {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
+  display: block;
   border: 1px solid var(--line);
   background: var(--overlay);
   border-radius: 6px;
@@ -830,6 +827,68 @@ button:disabled {
 
 .pr-context.hidden {
   display: none;
+}
+
+.pr-bar-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.pr-chevron {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.pr-comments {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--line);
+  max-height: 40vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  color: var(--muted);
+}
+
+.pr-thread {
+  border-left: 2px solid var(--danger);
+  padding-left: 8px;
+}
+
+.pr-thread.resolved {
+  border-left-color: var(--ready);
+  opacity: 0.7;
+}
+
+.pr-thread-loc {
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 2px;
+}
+
+.pr-comment {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  padding: 1px 0;
+}
+
+.pr-comment-author {
+  flex: 0 0 auto;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.pr-comment-text {
+  flex: 1 1 auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text);
 }
 
 .pr-link {

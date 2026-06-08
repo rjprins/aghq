@@ -142,8 +142,7 @@ type RawThread = {
   }[];
 };
 
-/** Fetch + summarize the comment threads of a PR. `me` is excluded from "new comments". */
-export async function getPrThreadsSummary(ref: AzureRepoRef, prId: number, me: string): Promise<PrThreadsSummary> {
+async function fetchRawThreads(ref: AzureRepoRef, prId: number): Promise<RawThread[]> {
   const res = await azJson<{ value: RawThread[] }>([
     "devops", "invoke",
     "--org", ref.orgUrl,
@@ -153,13 +152,19 @@ export async function getPrThreadsSummary(ref: AzureRepoRef, prId: number, me: s
     "--api-version", "7.1",
     "-o", "json",
   ]);
+  return res.value ?? [];
+}
+
+/** Fetch + summarize the comment threads of a PR. `me` is excluded from "new comments". */
+export async function getPrThreadsSummary(ref: AzureRepoRef, prId: number, me: string): Promise<PrThreadsSummary> {
+  const threads = await fetchRawThreads(ref, prId);
 
   let resolvedCount = 0;
   let unresolvedCount = 0;
   let latestOtherCommentAt = 0;
   const newComments: PrComment[] = [];
 
-  for (const thread of res.value ?? []) {
+  for (const thread of threads) {
     if (thread.isDeleted) continue;
     const textComments = (thread.comments ?? []).filter(
       (c) => !c.isDeleted && c.commentType === "text" && (c.content ?? "").trim().length > 0,
@@ -210,5 +215,53 @@ export function buildPrSummary(
     unresolvedCount: threads.unresolvedCount,
     hasNewComments,
     votes: pr.votes,
+  };
+}
+
+export type PrCommentThread = {
+  threadId: number;
+  resolved: boolean;
+  status: string;
+  file: string | null;
+  line: number | null;
+  comments: { author: string; text: string; at: number }[];
+};
+
+/** All human comment threads on a PR (resolved + active), ordered oldest activity first. */
+export async function getPrComments(ref: AzureRepoRef, prId: number): Promise<PrCommentThread[]> {
+  const threads = await fetchRawThreads(ref, prId);
+  const out: PrCommentThread[] = [];
+  for (const thread of threads) {
+    if (thread.isDeleted) continue;
+    const textComments = (thread.comments ?? []).filter(
+      (c) => !c.isDeleted && c.commentType === "text" && (c.content ?? "").trim().length > 0,
+    );
+    if (textComments.length === 0) continue;
+    const status = (thread.status ?? "").toLowerCase();
+    out.push({
+      threadId: thread.id,
+      resolved: RESOLVED_THREAD_STATUS.has(status),
+      status: status || "active",
+      file: thread.threadContext?.filePath ?? null,
+      line: thread.threadContext?.rightFileStart?.line ?? null,
+      comments: textComments.map((c) => ({
+        author: c.author?.uniqueName || c.author?.displayName || "?",
+        text: (c.content ?? "").trim(),
+        at: Date.parse(c.lastUpdatedDate || c.publishedDate || "") || 0,
+      })),
+    });
+  }
+  const latest = (t: PrCommentThread) => t.comments.reduce((m, c) => Math.max(m, c.at), 0);
+  out.sort((a, b) => latest(a) - latest(b));
+  return out;
+}
+
+/** Parse a PR Files-tab URL (as built by prFilesUrl) back into its repo ref + id. */
+export function parseAzurePrUrl(url: string): { ref: AzureRepoRef; prId: number } | null {
+  const m = /^(https?:\/\/dev\.azure\.com\/[^/]+)\/([^/]+)\/_git\/([^/]+)\/pullrequest\/(\d+)/i.exec(url);
+  if (!m) return null;
+  return {
+    ref: { orgUrl: m[1], project: decodeURIComponent(m[2]), repo: decodeURIComponent(m[3]) },
+    prId: Number(m[4]),
   };
 }

@@ -2596,16 +2596,85 @@ function renderInputContextBar(): void {
   inputHistoryListEl.classList.remove("hidden");
 }
 
+type PrCommentThreadView = {
+  threadId: number;
+  resolved: boolean;
+  status: string;
+  file: string | null;
+  line: number | null;
+  comments: { author: string; text: string; at: number }[];
+};
+
+let prCommentsExpanded = false;
+let prCommentsForPty: string | null = null;
+let prCommentsLoading = false;
+let prCommentsError: string | null = null;
+let prCommentsData: PrCommentThreadView[] | null = null;
+
+function resetPrComments(): void {
+  prCommentsExpanded = false;
+  prCommentsForPty = null;
+  prCommentsLoading = false;
+  prCommentsError = null;
+  prCommentsData = null;
+}
+
+async function loadPrComments(ptyId: string): Promise<void> {
+  prCommentsLoading = true;
+  prCommentsError = null;
+  prCommentsData = null;
+  prCommentsForPty = ptyId;
+  renderPrContextBar();
+  try {
+    const res = await authFetch(`/api/azure-pr/threads?ptyId=${encodeURIComponent(ptyId)}`);
+    if (!res.ok) throw new Error(await readApiError(res));
+    const body = (await res.json()) as { threads?: PrCommentThreadView[] };
+    if (prCommentsForPty !== ptyId) return; // active session changed while loading
+    prCommentsData = body.threads ?? [];
+  } catch (err) {
+    if (prCommentsForPty !== ptyId) return;
+    prCommentsError = err instanceof Error ? err.message : String(err);
+  } finally {
+    if (prCommentsForPty === ptyId) {
+      prCommentsLoading = false;
+      renderPrContextBar();
+    }
+  }
+}
+
+function togglePrComments(): void {
+  if (!activePtyId) return;
+  prCommentsExpanded = !prCommentsExpanded;
+  if (prCommentsExpanded && prCommentsForPty !== activePtyId) {
+    void loadPrComments(activePtyId);
+  } else {
+    renderPrContextBar();
+  }
+}
+
 function renderPrContextBar(): void {
   const summary = activePtyId ? ptys.find((p) => p.id === activePtyId) : null;
   const pr = summary?.pr ?? null;
   if (!pr) {
+    if (prCommentsForPty) resetPrComments();
     prContextEl.classList.add("hidden");
     prContextEl.textContent = "";
     return;
   }
+  // Collapse if cached comments belong to a different session.
+  if (prCommentsForPty && prCommentsForPty !== activePtyId) resetPrComments();
+
   prContextEl.classList.remove("hidden");
   prContextEl.textContent = "";
+
+  const row = document.createElement("div");
+  row.className = "pr-bar-row";
+  row.title = "Show review comments";
+  row.onclick = () => togglePrComments();
+
+  const chevron = document.createElement("span");
+  chevron.className = "pr-chevron";
+  chevron.textContent = prCommentsExpanded ? "▾" : "▸";
 
   const link = document.createElement("a");
   link.className = "pr-link";
@@ -2614,6 +2683,7 @@ function renderPrContextBar(): void {
   link.rel = "noopener noreferrer";
   link.textContent = `PR #${pr.id}`;
   link.title = `Open PR #${pr.id} (Files tab): ${pr.title}`;
+  link.onclick = (ev) => ev.stopPropagation();
 
   const title = document.createElement("span");
   title.className = "pr-title";
@@ -2628,7 +2698,7 @@ function renderPrContextBar(): void {
   resolved.className = "pr-count resolved";
   resolved.textContent = `✓ ${pr.resolvedCount} resolved`;
 
-  prContextEl.append(link, title, unresolved, resolved);
+  row.append(chevron, link, title, unresolved, resolved);
 
   const approvals = pr.votes.filter((v) => v.vote === "approved" || v.vote === "approvedWithSuggestions").length;
   const rejections = pr.votes.filter((v) => v.vote === "rejected" || v.vote === "waitingForAuthor").length;
@@ -2637,8 +2707,48 @@ function renderPrContextBar(): void {
     votes.className = "pr-votes";
     votes.textContent = [approvals > 0 ? `✔ ${approvals}` : "", rejections > 0 ? `✖ ${rejections}` : ""].filter(Boolean).join("  ");
     votes.title = "Reviewer votes (approved / rejected-or-waiting)";
-    prContextEl.append(votes);
+    row.append(votes);
   }
+
+  prContextEl.append(row);
+
+  if (!prCommentsExpanded) return;
+
+  const panel = document.createElement("div");
+  panel.className = "pr-comments";
+  if (prCommentsLoading) {
+    panel.textContent = "Loading comments…";
+  } else if (prCommentsError) {
+    panel.textContent = `Failed to load comments: ${prCommentsError}`;
+  } else if (!prCommentsData || prCommentsData.length === 0) {
+    panel.textContent = "No review comments.";
+  } else {
+    for (const t of prCommentsData) {
+      const thread = document.createElement("div");
+      thread.className = `pr-thread${t.resolved ? " resolved" : ""}`;
+
+      const loc = document.createElement("div");
+      loc.className = "pr-thread-loc";
+      const where = t.file ? `${t.file}${t.line ? `:${t.line}` : ""}` : "PR-level";
+      loc.textContent = `${where} · ${t.resolved ? "resolved" : t.status}`;
+      thread.append(loc);
+
+      for (const c of t.comments) {
+        const cm = document.createElement("div");
+        cm.className = "pr-comment";
+        const who = document.createElement("span");
+        who.className = "pr-comment-author";
+        who.textContent = c.author;
+        const text = document.createElement("span");
+        text.className = "pr-comment-text";
+        text.textContent = c.text;
+        cm.append(who, text);
+        thread.append(cm);
+      }
+      panel.append(thread);
+    }
+  }
+  prContextEl.append(panel);
 }
 
 function unquoteToken(s: string): string {
