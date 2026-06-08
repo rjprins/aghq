@@ -6,6 +6,8 @@ export type {
   PtyId,
   SessionTaskAssignment,
   SessionTaskRef,
+  PrReviewVote,
+  PrSummary,
   PtyReadinessIndicator,
   PtyReadinessState,
   PtyStatus,

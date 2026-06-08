@@ -11,6 +11,9 @@ import {
   AUTH_ENABLED,
   AUTH_TOKEN,
   AUTH_TOKEN_SOURCE,
+  AZURE_PR_AUTO_SUBMIT,
+  AZURE_PR_ENABLED,
+  AZURE_PR_POLL_INTERVAL_MS,
   DB_PATH,
   DEFAULT_BASE_BRANCH,
   HOST,
@@ -26,6 +29,7 @@ import {
   TRIGGERS_PATH,
   assertLoopbackHostAllowed,
 } from "./server/config.js";
+import { createAzurePrPoller } from "./server/azure-pr-poller.js";
 import { createRuntime } from "./server/pty-runtime.js";
 import { registerAgentRoutes } from "./server/routes/agents.js";
 import { registerPtyRoutes } from "./server/routes/ptys.js";
@@ -145,4 +149,30 @@ if (AUTH_ENABLED) {
 
 if (process.env.AGMUX_NO_OPEN !== "1") {
   openBrowser(appUrlWithToken);
+}
+
+if (AZURE_PR_ENABLED) {
+  const azurePrPoller = createAzurePrPoller({
+    store,
+    logger: fastify.log,
+    listPtys: runtime.listPtys,
+    writeToPty: (ptyId, data) => runtime.ptys.write(ptyId, data),
+    setPrStateForBranch: runtime.setPrStateForBranch,
+    broadcastPtyList: runtime.broadcastPtyList,
+    launchSession: async (opts) => {
+      const res = await fetch(`http://127.0.0.1:${PORT}/api/ptys/launch`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...(AUTH_ENABLED ? { "x-agmux-token": AUTH_TOKEN } : {}),
+        },
+        body: JSON.stringify(opts),
+      });
+      if (!res.ok) throw new Error(`launch failed: HTTP ${res.status}`);
+    },
+    pollIntervalMs: AZURE_PR_POLL_INTERVAL_MS,
+    autoSubmit: AZURE_PR_AUTO_SUBMIT,
+  });
+  azurePrPoller.start();
+  console.log(`[agmux] Azure PR polling enabled (every ${Math.round(AZURE_PR_POLL_INTERVAL_MS / 1000)}s).`);
 }

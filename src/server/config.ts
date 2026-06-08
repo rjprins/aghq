@@ -64,6 +64,16 @@ export const WS_ALLOWED_ORIGINS = new Set(
       .filter((v) => v.length > 0),
   ].map((v) => v.toLowerCase()),
 );
+// Azure DevOps PR polling (opt-in). Uses the local `az` CLI for auth.
+export const AZURE_PR_ENABLED = /^(1|true|yes|on)$/i.test((process.env.AGMUX_AZURE_PR ?? "").trim());
+export const AZURE_PR_POLL_INTERVAL_MS = Math.max(
+  10_000,
+  Number(process.env.AGMUX_AZURE_PR_POLL_INTERVAL_MS ?? "60000") || 60_000,
+);
+// When true, a comment delivered to a live session is submitted (Enter). When false
+// (default) it is typed into the input box for the user to review and submit.
+export const AZURE_PR_AUTO_SUBMIT = process.env.AGMUX_AZURE_PR_AUTO_SUBMIT === "1";
+
 export const DEFAULT_BASE_BRANCH = "main";
 const DEFAULT_TMUX_SESSION = `agmux-${PORT}`;
 export const AGMUX_SESSION = process.env.AGMUX_TMUX_SESSION ?? DEFAULT_TMUX_SESSION;

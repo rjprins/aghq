@@ -5,7 +5,7 @@ import { ReadinessEngine, type PtyReadyEvent } from "../readiness/engine.js";
 import { TriggerEngine } from "../triggers/engine.js";
 import { TriggerLoader } from "../triggers/loader.js";
 import { WsHub } from "../ws/hub.js";
-import type { AgentProvider, PtySummary, ServerToClientMessage } from "../types.js";
+import type { AgentProvider, PrSummary, PtySummary, ServerToClientMessage } from "../types.js";
 import type { SqliteStore } from "../persist/sqlite.js";
 import { projectRootFromCwdAny, worktreeFromCwdAny } from "../worktree.js";
 import {
@@ -47,6 +47,16 @@ export function createRuntime(deps: RuntimeDeps) {
   const triggerLoader = new TriggerLoader(triggersPath);
 
   const linkedSessionsByPty = new Map<string, { name: string; server: TmuxServer }>();
+
+  // PR state keyed by `${projectRoot}\n${branch}`, populated by the Azure PR poller and
+  // merged into PtySummary so sessions on a PR's branch carry its PR info.
+  const prStateByKey = new Map<string, PrSummary>();
+  const prKey = (projectRoot: string, branch: string): string => `${projectRoot}\n${branch}`;
+  function setPrStateForBranch(projectRoot: string, branch: string, pr: PrSummary | null): void {
+    const key = prKey(projectRoot, branch);
+    if (pr) prStateByKey.set(key, pr);
+    else prStateByKey.delete(key);
+  }
 
   const readinessTrace: ReadinessTraceEntry[] = [];
   let readinessTraceSeq = 0;
@@ -124,10 +134,12 @@ export function createRuntime(deps: RuntimeDeps) {
       const agentRef = agentSessions.attachedAgentSessionForPty(summary.id);
       const projectRoot = projectRootFromCwdAny(summary.cwd ?? null);
       const worktree = worktreeFromCwdAny(summary.cwd ?? null);
+      const pr = projectRoot && worktree ? prStateByKey.get(prKey(projectRoot, worktree)) ?? null : null;
       const next = {
         ...summary,
         projectRoot,
         worktree,
+        pr,
         ...(agentRef
           ? {
               agentProvider: agentRef.provider,
@@ -388,5 +400,6 @@ export function createRuntime(deps: RuntimeDeps) {
     reconcileTmuxAttachments,
     trackLinkedSession,
     getReadinessTrace,
+    setPrStateForBranch,
   };
 }

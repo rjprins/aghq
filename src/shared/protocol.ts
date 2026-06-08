@@ -17,6 +17,24 @@ export type SessionTaskAssignment = SessionTaskRef & {
   cwd: string | null;
 };
 
+export type PrReviewVote =
+  | "approved"
+  | "approvedWithSuggestions"
+  | "noVote"
+  | "waitingForAuthor"
+  | "rejected";
+
+export type PrSummary = {
+  id: number;
+  url: string; // deep link to the PR Files tab
+  title: string;
+  sourceBranch: string; // short branch name (no refs/heads/ prefix)
+  resolvedCount: number;
+  unresolvedCount: number;
+  hasNewComments: boolean;
+  votes: { by: string; vote: PrReviewVote }[];
+};
+
 export type PtySummary = {
   id: PtyId;
   name: string;
@@ -43,6 +61,7 @@ export type PtySummary = {
   exitCode?: number | null;
   exitSignal?: string | null;
   task?: SessionTaskAssignment | null;
+  pr?: PrSummary | null;
 };
 
 export type ClientToServerMessage =
