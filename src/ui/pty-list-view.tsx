@@ -20,6 +20,8 @@ export type RunningPtyItem = {
   color: string;
   active: boolean;
   readyUnviewed: boolean;
+  prHasNewComments?: boolean;
+  prUnresolved?: number;
   readyState: ReadyState;
   readyIndicator: ReadyIndicator;
   readyReason: string;
@@ -266,7 +268,7 @@ function PtyItemRow(
   return (
     <li
       key={item.id}
-      className={`pty-item reorderable state-${item.readyState}${item.active ? " active" : ""}${item.readyUnviewed ? " ready-unviewed" : ""}`}
+      className={`pty-item reorderable state-${item.readyState}${item.active ? " active" : ""}${item.readyUnviewed ? " ready-unviewed" : ""}${item.prHasNewComments ? " pr-unviewed" : ""}`}
       data-pty-id={item.id}
       data-pty-group-key={groupKey}
       style={ptyStyle(item.color)}
@@ -374,6 +376,14 @@ function PtyItemRow(
             >
               {"\ud83d\udd89"}
             </button>
+            {item.prHasNewComments ? (
+              <span
+                className="pr-comment-badge"
+                title={`${item.prUnresolved ?? 0} unresolved PR comment(s) \u2014 new`}
+              >
+                PR
+              </span>
+            ) : null}
           </div>
           {(item.process || item.worktree || item.secondaryText || item.title) ? (
             <div className="secondary">

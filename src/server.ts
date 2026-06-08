@@ -30,6 +30,7 @@ import {
   assertLoopbackHostAllowed,
 } from "./server/config.js";
 import { createAzurePrPoller } from "./server/azure-pr-poller.js";
+import { registerAzurePrRoutes } from "./server/routes/azure-pr.js";
 import { createRuntime } from "./server/pty-runtime.js";
 import { registerAgentRoutes } from "./server/routes/agents.js";
 import { registerPtyRoutes } from "./server/routes/ptys.js";
@@ -104,6 +105,7 @@ registerPtyRoutes({
   defaultBaseBranch: DEFAULT_BASE_BRANCH,
   agmuxSession: AGMUX_SESSION,
 });
+registerAzurePrRoutes({ fastify, store, listPtys: runtime.listPtys });
 registerTriggerRoutes({ fastify, loadTriggersAndBroadcast: runtime.loadTriggersAndBroadcast });
 registerStaticRoutes({ fastify, publicDir: PUBLIC_DIR });
 

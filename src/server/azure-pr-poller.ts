@@ -200,11 +200,12 @@ export function createAzurePrPoller(deps: AzurePrPollerDeps) {
       if (timer) clearInterval(timer);
       timer = null;
     },
-    /** Mark a PR as viewed up to now, clearing its new-comment flag. */
-    markViewed(prId: number): void {
-      const viewed = readMap(VIEWED_PREF);
-      viewed[prId] = Date.now();
-      store.setPreference(VIEWED_PREF, viewed);
-    },
   };
+}
+
+/** Mark a PR as viewed (now), clearing its new-comment flag on the next poll. */
+export function markPrViewed(store: SqliteStore, prId: number): void {
+  const viewed = store.getPreference<Record<string, number>>(VIEWED_PREF) ?? {};
+  viewed[prId] = Date.now();
+  store.setPreference(VIEWED_PREF, viewed);
 }

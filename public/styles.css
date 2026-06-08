@@ -814,6 +814,79 @@ button:disabled {
   display: none;
 }
 
+/* PR context bar (below the history panel) + sidebar new-comment marker. */
+.pr-context {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  border: 1px solid var(--line);
+  background: var(--overlay);
+  border-radius: 6px;
+  padding: 5px 8px;
+  font-size: 12px;
+  min-height: 0;
+}
+
+.pr-context.hidden {
+  display: none;
+}
+
+.pr-link {
+  flex: 0 0 auto;
+  font-weight: 600;
+  color: var(--accent);
+  text-decoration: none;
+  padding: 1px 6px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+}
+
+.pr-link:hover {
+  text-decoration: underline;
+}
+
+.pr-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pr-count,
+.pr-votes {
+  flex: 0 0 auto;
+  color: var(--muted);
+}
+
+.pr-count.unresolved.has {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.pr-count.resolved {
+  color: var(--ready);
+}
+
+.pty-item .pr-comment-badge {
+  flex: 0 0 auto;
+  margin-left: 4px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 1px 5px;
+  border-radius: 6px;
+  color: #fff;
+  background: var(--danger);
+}
+
+.pty-item.pr-unviewed {
+  box-shadow: inset 2px 0 0 var(--danger);
+}
+
 .input-context-row {
   display: flex;
   align-items: center;

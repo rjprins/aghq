@@ -96,6 +96,7 @@ const inputContextToggleEl = $("input-context-toggle");
 const inputContextLastEl = $("input-context-last");
 const inputHistoryLabelEl = $("input-history-label");
 const inputHistoryListEl = $("input-history-list");
+const prContextEl = $("pr-context");
 const mobileRoot = document.createElement("div");
 mobileRoot.id = "mobile-root";
 document.body.appendChild(mobileRoot);
@@ -2595,6 +2596,51 @@ function renderInputContextBar(): void {
   inputHistoryListEl.classList.remove("hidden");
 }
 
+function renderPrContextBar(): void {
+  const summary = activePtyId ? ptys.find((p) => p.id === activePtyId) : null;
+  const pr = summary?.pr ?? null;
+  if (!pr) {
+    prContextEl.classList.add("hidden");
+    prContextEl.textContent = "";
+    return;
+  }
+  prContextEl.classList.remove("hidden");
+  prContextEl.textContent = "";
+
+  const link = document.createElement("a");
+  link.className = "pr-link";
+  link.href = pr.url;
+  link.target = "_blank";
+  link.rel = "noopener noreferrer";
+  link.textContent = `PR #${pr.id}`;
+  link.title = `Open PR #${pr.id} (Files tab): ${pr.title}`;
+
+  const title = document.createElement("span");
+  title.className = "pr-title";
+  title.textContent = pr.title;
+  title.title = pr.title;
+
+  const unresolved = document.createElement("span");
+  unresolved.className = `pr-count unresolved${pr.unresolvedCount > 0 ? " has" : ""}`;
+  unresolved.textContent = `● ${pr.unresolvedCount} unresolved`;
+
+  const resolved = document.createElement("span");
+  resolved.className = "pr-count resolved";
+  resolved.textContent = `✓ ${pr.resolvedCount} resolved`;
+
+  prContextEl.append(link, title, unresolved, resolved);
+
+  const approvals = pr.votes.filter((v) => v.vote === "approved" || v.vote === "approvedWithSuggestions").length;
+  const rejections = pr.votes.filter((v) => v.vote === "rejected" || v.vote === "waitingForAuthor").length;
+  if (approvals > 0 || rejections > 0) {
+    const votes = document.createElement("span");
+    votes.className = "pr-votes";
+    votes.textContent = [approvals > 0 ? `✔ ${approvals}` : "", rejections > 0 ? `✖ ${rejections}` : ""].filter(Boolean).join("  ");
+    votes.title = "Reviewer votes (approved / rejected-or-waiting)";
+    prContextEl.append(votes);
+  }
+}
+
 function unquoteToken(s: string): string {
   if (s.length >= 2 && ((s.startsWith(`"`) && s.endsWith(`"`)) || (s.startsWith(`'`) && s.endsWith(`'`)))) {
     return s.slice(1, -1);
@@ -3535,6 +3581,8 @@ function buildRunningPtyItem(p: PtySummary): RunningPtyItem {
     color: ptyColor(p.id),
     active: p.id === activePtyId,
     readyUnviewed: unviewedReadyPtys.has(p.id) && p.id !== activePtyId,
+    prHasNewComments: Boolean(p.pr?.hasNewComments) && p.id !== activePtyId,
+    prUnresolved: p.pr?.unresolvedCount,
     readyState: readyInfo.state,
     readyIndicator: readyInfo.indicator,
     readyReason: readyInfo.reason,
@@ -4466,6 +4514,7 @@ function renderList(): void {
   };
 
   latestPtyListModel = model;
+  renderPrContextBar();
 
   renderPtyList(listEl, model, {
     onToggleGroup: (groupKey) => {
@@ -4572,6 +4621,15 @@ function setActive(ptyId: string): void {
 
   activePtyId = ptyId;
   unviewedReadyPtys.delete(ptyId);
+  // Viewing a session clears its PR new-comment marker (optimistic + durable).
+  if (summary.pr?.hasNewComments) {
+    summary.pr.hasNewComments = false;
+    void authFetch("/api/azure-pr/viewed", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ptyId }),
+    }).catch(() => {});
+  }
   saveActivePty(ptyId);
   ensureTerm(ptyId);
   updateTerminalVisibility();

@@ -11,6 +11,27 @@
     }
   ],
   "paths": {
+    "/api/azure-pr/viewed": {
+      "post": {
+        "summary": "Mark a session's PR as viewed (clears its new-comment flag)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": { "ptyId": { "type": "string" } },
+                "required": ["ptyId"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "OK" },
+          "400": { "description": "Bad request" }
+        }
+      }
+    },
     "/api/agent-sessions": {
       "get": {
         "summary": "List discovered agent sessions",
