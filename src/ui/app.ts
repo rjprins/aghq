@@ -1833,7 +1833,15 @@ function hashHue(s: string): number {
 }
 
 function ptyColor(ptyId: string): string {
-  return `hsl(${hashHue(ptyId)} ${activeTheme.hashSaturation}% ${activeTheme.hashLightness}%)`;
+  return hashColor(ptyId);
+}
+
+function hashColor(seed: string): string {
+  return `hsl(${hashHue(seed)} ${activeTheme.hashSaturation}% ${activeTheme.hashLightness}%)`;
+}
+
+function worktreeColor(worktreeName: string): string {
+  return hashColor(`worktree:${worktreeName}`);
 }
 
 function shortId(ptyId: string): string {
@@ -3670,6 +3678,8 @@ let archivedSectionExpandedOverride = loadBooleanPreference(ARCHIVED_SECTION_EXP
 function buildRunningPtyItem(p: PtySummary): RunningPtyItem {
   const name = displayRunningPtyName(p);
   const title = (ptyTitles.get(p.id) ?? "").trim();
+  const worktree = ptyWorktreeLabel(p);
+  const wtColor = worktree ? worktreeColor(worktree) : undefined;
   const activeProcess = compactWhitespace(p.activeProcess ?? "");
   const inferredAgent = inferAgentFromRecentInput(p.id);
   const preferTitleAgentLabel = Boolean(title) && isAgentProcessName(title) && isGenericRuntimeProcess(activeProcess);
@@ -3688,7 +3698,7 @@ function buildRunningPtyItem(p: PtySummary): RunningPtyItem {
 
   return {
     id: p.id,
-    color: ptyColor(p.id),
+    color: wtColor ?? ptyColor(p.id),
     active: p.id === activePtyId,
     readyUnviewed: unviewedReadyPtys.has(p.id) && p.id !== activePtyId,
     prMarker: p.pr ? (p.pr.hasNewComments && p.id !== activePtyId ? "new" : "seen") : undefined,
@@ -3701,7 +3711,7 @@ function buildRunningPtyItem(p: PtySummary): RunningPtyItem {
     process: process && process !== name ? process : undefined,
     title: title && title !== process && title !== name ? title : undefined,
     secondaryText,
-    worktree: ptyWorktreeLabel(p),
+    worktree,
     cwd: p.cwd ?? undefined,
     elapsed: elapsed || undefined,
   };
@@ -3721,7 +3731,7 @@ function buildInactiveAgentSessionItem(session: AgentSessionSummary): InactivePt
 
   return {
     id: session.id,
-    color: ptyColor(session.id),
+    color: worktree ? worktreeColor(worktree) : ptyColor(session.id),
     process,
     secondaryText: subtitle,
     firstInput: intent ?? undefined,
@@ -4455,6 +4465,7 @@ function reorderSidebarPty(sourcePtyId: string, targetPtyId: string, placement: 
   const target = ptys.find((p) => p.id === targetPtyId && p.status === "running");
   if (!source || !target) return;
   if (runningPtyGroupKey(source) !== runningPtyGroupKey(target)) return;
+  if ((ptyWorktreeLabel(source) ?? "") !== (ptyWorktreeLabel(target) ?? "")) return;
 
   const currentOrder = runningPtys().map((p) => p.id);
   const nextOrder = reorderPtyIds(currentOrder, sourcePtyId, targetPtyId, placement);
@@ -4470,6 +4481,7 @@ function renderList(): void {
   const runningPtys = orderRunningPtysForSidebar(ptys, {
     pinnedDirectories,
     getGroupKey: runningPtyGroupKey,
+    getWorktreeKey: ptyWorktreeLabel,
     manualOrder: sidebarPtyOrder,
   });
   const activeAgentSessionIds = new Set(
@@ -4519,9 +4531,6 @@ function renderList(): void {
     const basename = key ? key.split("/").filter(Boolean).at(-1) ?? key : "Other";
     const runningItems = runningByDir.get(key) ?? [];
 
-    // All running items shown flat (worktree displayed as pill on each item)
-    const rootItems = runningItems;
-
     // Inline inactive sessions for this directory
     const dirInactiveItems = inactiveByProject.get(key) ?? [];
     const inactiveSub = buildInactiveWorktreeSubgroups(dirInactiveItems, key);
@@ -4533,7 +4542,7 @@ function renderList(): void {
       pinned: pinnedDirectories.has(key),
       collapsed: collapsedGroups.has(key),
       worktrees: [],
-      items: rootItems,
+      items: runningItems,
       inactiveSessions: inactiveSub.rootItems,
       inactiveWorktrees: inactiveSub.worktrees,
       inactiveTotal: dirInactiveItems.length,
@@ -4994,6 +5003,7 @@ function runningPtys(): PtySummary[] {
   return orderRunningPtysForSidebar(ptys, {
     pinnedDirectories,
     getGroupKey: runningPtyGroupKey,
+    getWorktreeKey: ptyWorktreeLabel,
     manualOrder: sidebarPtyOrder,
   });
 }

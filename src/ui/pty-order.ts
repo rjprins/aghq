@@ -13,11 +13,21 @@ export function compareSidebarGroupKeys(a: string, b: string): number {
   return sidebarBasename(a).localeCompare(sidebarBasename(b));
 }
 
+export function compareSidebarWorktreeKeys(a: string | null, b: string | null): number {
+  const left = a?.trim() || "";
+  const right = b?.trim() || "";
+  if (!left && !right) return 0;
+  if (!left) return -1;
+  if (!right) return 1;
+  return left.localeCompare(right, undefined, { numeric: true, sensitivity: "base" });
+}
+
 export function orderRunningPtysForSidebar(
   ptys: PtySummary[],
   opts: {
     pinnedDirectories: ReadonlySet<string>;
     getGroupKey: (pty: PtySummary) => string;
+    getWorktreeKey?: (pty: PtySummary) => string | null;
     manualOrder?: readonly string[];
   },
 ): PtySummary[] {
@@ -45,8 +55,12 @@ export function orderRunningPtysForSidebar(
   const manualOrderIndex = new Map((opts.manualOrder ?? []).map((id, index) => [id, index]));
   return orderedKeys.flatMap((key) => {
     const items = runningByDir.get(key) ?? [];
-    if (manualOrderIndex.size === 0) return items;
     return [...items].sort((a, b) => {
+      if (opts.getWorktreeKey) {
+        const worktreeOrder = compareSidebarWorktreeKeys(opts.getWorktreeKey(a), opts.getWorktreeKey(b));
+        if (worktreeOrder !== 0) return worktreeOrder;
+      }
+      if (manualOrderIndex.size === 0) return 0;
       const aIndex = manualOrderIndex.get(a.id);
       const bIndex = manualOrderIndex.get(b.id);
       if (aIndex === undefined && bIndex === undefined) return 0;
