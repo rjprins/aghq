@@ -4,15 +4,23 @@ Local web UI for managing agent terminal sessions. Streams PTY output to the bro
 
 Built for managing [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Codex](https://github.com/openai/codex), and other CLI-based coding agents — but works with any terminal program.
 
+<p align="center">
+  <img src="docs/screenshot.png" alt="agmux web UI" width="820">
+</p>
+
 ## Features
 
-- **Web-based terminal viewer** — real-time PTY output streamed via WebSockets
-- **tmux-backed sessions** — agent sessions survive server restarts
-- **Trigger system** — pattern-match on terminal output and run custom actions
-- **Agent readiness** — Claude hooks and Codex notify callbacks mark sessions ready, with tmux pane inference as fallback
-- **Inactive session discovery** — include recent Claude/Codex/Pi JSONL sessions in the inactive list
-- **Themeable UI** — 5 built-in themes
-- **Multi-worktree support** — manage multiple git worktrees from one interface
+- **Live terminal dashboard** — stream tmux-backed PTYs over WebSockets, switch sessions quickly, rename/kill sessions, and keep shells alive across server restarts.
+- **Agent launch workflows** — start shells, Codex, Claude, or custom CLI agents in an existing worktree, a new worktree, or the current project, with saved flags and launch preferences.
+- **Worktree-aware sidebar** — group projects, sort sessions by worktree, pin or archive projects, and keep same-worktree sessions visually tied together by their left rail color.
+- **Readiness detection** — mark Claude/Codex sessions ready through callbacks, with tmux pane inference as a fallback for prompts, permission requests, and idle shells.
+- **Inactive session discovery and restore** — discover recent Claude, Codex, and Pi sessions from provider logs, preview conversations, and restore them into the same cwd, an existing worktree, or a new worktree.
+- **PR review context** — poll Azure DevOps PR state for active sessions, surface unresolved/new comment markers, and expand review threads from the PR bar.
+- **Task context** — configure project task providers, list/update Beads tasks, and attach task references to launched or running sessions.
+- **MCP control surface** — expose local tools for listing PTYs, sending input, taking snapshots, launching agents, attaching tmux sessions, renaming/killing PTYs, and restoring agent sessions.
+- **Trigger system** — hot-reload custom triggers from `triggers/index.js`, match terminal output, and orchestrate sessions through trigger hooks.
+- **Desktop and mobile UI** — use the full desktop terminal view or a mobile-first agent view with quick prompts, scrollback snapshots, and touch-friendly controls.
+- **Local-first safety controls** — optional token auth for `/api/*` and `/ws`, loopback binding by default, theme/settings persistence, input history, and tmux inspection helpers.
 
 ## Prerequisites
 
