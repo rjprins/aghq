@@ -20,8 +20,9 @@ export type RunningPtyItem = {
   color: string;
   active: boolean;
   readyUnviewed: boolean;
-  prHasNewComments?: boolean;
+  prMarker?: "new" | "seen";
   prUnresolved?: number;
+  prUrl?: string;
   readyState: ReadyState;
   readyIndicator: ReadyIndicator;
   readyReason: string;
@@ -268,7 +269,7 @@ function PtyItemRow(
   return (
     <li
       key={item.id}
-      className={`pty-item reorderable state-${item.readyState}${item.active ? " active" : ""}${item.readyUnviewed ? " ready-unviewed" : ""}${item.prHasNewComments ? " pr-unviewed" : ""}`}
+      className={`pty-item reorderable state-${item.readyState}${item.active ? " active" : ""}${item.readyUnviewed ? " ready-unviewed" : ""}${item.prMarker === "new" ? " pr-unviewed" : ""}`}
       data-pty-id={item.id}
       data-pty-group-key={groupKey}
       style={ptyStyle(item.color)}
@@ -376,13 +377,19 @@ function PtyItemRow(
             >
               {"\ud83d\udd89"}
             </button>
-            {item.prHasNewComments ? (
-              <span
-                className="pr-comment-badge"
-                title={`${item.prUnresolved ?? 0} unresolved PR comment(s) \u2014 new`}
+            {item.prMarker ? (
+              <a
+                className={`pr-comment-badge ${item.prMarker}`}
+                href={item.prUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                title={item.prMarker === "new"
+                  ? `${item.prUnresolved ?? 0} unresolved PR comment(s) \u2014 new \u2014 click to open PR`
+                  : `Open PR (${item.prUnresolved ?? 0} unresolved)`}
+                onClick={(ev) => ev.stopPropagation()}
               >
                 PR
-              </span>
+              </a>
             ) : null}
           </div>
           {(item.process || item.worktree || item.secondaryText || item.title) ? (

@@ -880,7 +880,23 @@ button:disabled {
   padding: 1px 5px;
   border-radius: 6px;
   color: #fff;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+/* Hot: there are new (unseen) review comments. */
+.pty-item .pr-comment-badge.new {
   background: var(--danger);
+}
+
+/* Calm: a PR exists and you've seen the latest comments. */
+.pty-item .pr-comment-badge.seen {
+  background: var(--muted);
+  opacity: 0.85;
+}
+
+.pty-item .pr-comment-badge:hover {
+  filter: brightness(1.12);
 }
 
 .pty-item.pr-unviewed {
