@@ -119,6 +119,69 @@ describe("route wiring", () => {
     await fastify.close();
   });
 
+  it("opens branch-review for a running PTY cwd", async () => {
+    const fastify = Fastify();
+    const opened: string[] = [];
+    const runtime = {
+      ptys: {
+        spawn: () => {},
+        list: () => [],
+        getSummary: (id: string) => (
+          id === "pty-1"
+            ? { id: "pty-1", status: "running", backend: "tmux", command: "tmux", args: [], cwd: "/repo/wt/src", createdAt: 0 }
+            : null
+        ),
+        kill: () => {},
+        write: () => {},
+        resize: () => {},
+        updateName: () => null,
+      },
+      readinessEngine: { registerAgent: () => {}, markBusy: () => {}, markExited: () => {}, markReady: () => {} },
+      listPtys: async () => [],
+      broadcastPtyList: async () => {},
+      trackLinkedSession: () => {},
+      getReadinessTrace: () => [],
+    } as any;
+    const store = {
+      upsertSession: () => {},
+      getPreference: () => ({}),
+      setPreference: () => {},
+      loadAllInputHistory: () => ({}),
+      saveInputHistory: () => {},
+    } as any;
+    const agentSessions = {
+      attachPtyToAgentSession: () => {},
+      upsertAgentSessionSummary: () => {},
+      renameAttachedSession: () => false,
+    } as any;
+    const worktrees = {
+      resolveProjectRoot: async () => null,
+      createWorktreeFromBase: async () => "",
+      directoryExists: async () => true,
+      isKnownWorktreePath: () => true,
+    } as any;
+
+    registerPtyRoutes({
+      fastify,
+      store,
+      agentSessions,
+      runtime,
+      worktrees,
+      defaultBaseBranch: "main",
+      agmuxSession: "agmux",
+      openBranchReview: async (cwd: string) => {
+        opened.push(cwd);
+        return { path: "/repo/wt" };
+      },
+    });
+
+    const res = await fastify.inject({ method: "POST", url: "/api/ptys/pty-1/open-branch-review" });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ ok: true, path: "/repo/wt" });
+    expect(opened).toEqual(["/repo/wt/src"]);
+    await fastify.close();
+  });
+
   it("forwards live Claude/Codex renames to the attached PTY", async () => {
     const fastify = Fastify();
     const writes: Array<{ id: string; data: string }> = [];

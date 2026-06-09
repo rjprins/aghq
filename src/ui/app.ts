@@ -106,6 +106,7 @@ const eventsEl = document.getElementById("events");
 const inputContextEl = $("input-context");
 const inputContextToggleEl = $("input-context-toggle");
 const inputContextLastEl = $("input-context-last");
+const btnBranchReview = $("btn-branch-review") as HTMLButtonElement;
 const inputHistoryLabelEl = $("input-history-label");
 const inputHistoryListEl = $("input-history-list");
 const prContextEl = $("pr-context");
@@ -118,6 +119,7 @@ let agentSessions: AgentSessionSummary[] = [];
 let activePtyId: string | null = null;
 let pendingActivePtyId: string | null = null;
 let inputHistoryExpanded = false;
+let branchReviewOpening = false;
 let wsConnected = false;
 
 const MOBILE_VIEW_KEY = "agmux:mobileView";
@@ -2680,6 +2682,8 @@ function renderInputContextBar(): void {
   if (!activePtyId) {
     inputContextEl.classList.add("hidden");
     inputContextLastEl.textContent = "(none yet)";
+    btnBranchReview.disabled = true;
+    btnBranchReview.setAttribute("aria-busy", "false");
     inputHistoryLabelEl.textContent = "History (0)";
     inputContextToggleEl.setAttribute("aria-expanded", "false");
     inputHistoryListEl.classList.add("hidden");
@@ -2701,6 +2705,8 @@ function renderInputContextBar(): void {
   inputContextLastEl.classList.remove("clickable");
   inputContextLastEl.onclick = null;
 
+  btnBranchReview.disabled = branchReviewOpening;
+  btnBranchReview.setAttribute("aria-busy", branchReviewOpening ? "true" : "false");
   inputHistoryLabelEl.textContent = `History (${history.length})`;
   inputContextToggleEl.setAttribute("aria-expanded", inputHistoryExpanded ? "true" : "false");
 
@@ -4967,9 +4973,38 @@ inputContextToggleEl.addEventListener("click", () => {
 });
 
 inputContextToggleEl.addEventListener("keydown", (ev) => {
+  if ((ev.target as Element | null)?.closest("button")) return;
   if (ev.key !== "Enter" && ev.key !== " ") return;
   ev.preventDefault();
   toggleInputHistory();
+});
+
+async function openActiveBranchReview(): Promise<void> {
+  if (!activePtyId || branchReviewOpening) return;
+  const ptyId = activePtyId;
+  branchReviewOpening = true;
+  renderInputContextBar();
+  try {
+    const res = await authFetch(`/api/ptys/${encodeURIComponent(ptyId)}/open-branch-review`, { method: "POST" });
+    if (!res.ok) {
+      addEvent(`Failed to open branch review: ${await readApiError(res)}`);
+      return;
+    }
+    const json = (await res.json()) as { path?: string };
+    addEvent(`Opened branch review${json.path ? `: ${json.path}` : ""}`);
+  } catch (err) {
+    addEvent(`Failed to open branch review: ${errorMessage(err)}`);
+  } finally {
+    branchReviewOpening = false;
+    renderInputContextBar();
+    focusActiveTerm();
+  }
+}
+
+btnBranchReview.addEventListener("click", (ev) => {
+  ev.preventDefault();
+  ev.stopPropagation();
+  void openActiveBranchReview();
 });
 
 function subscribeIfNeeded(ptyId: string): void {

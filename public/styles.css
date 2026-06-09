@@ -1045,6 +1045,28 @@ button:disabled {
   flex: 1 1 auto;
 }
 
+.input-context-action {
+  flex: 0 0 auto;
+  min-height: 24px;
+  padding: 3px 7px;
+  font-size: 11px;
+  font-weight: 600;
+  color: color-mix(in srgb, var(--text) 85%, var(--accent));
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--surface-border));
+  border-radius: 6px;
+}
+
+.input-context-action:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--button-hover));
+  background: color-mix(in srgb, var(--accent) 14%, var(--surface-hover));
+}
+
+.input-context-action:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .input-history-label {
   color: var(--muted);
   font-size: 12px;

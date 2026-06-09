@@ -242,6 +242,19 @@ server.registerTool("rename_pty", {
   }));
 });
 
+server.registerTool("open_branch_review", {
+  title: "Open branch review in Emacs",
+  description: "Open the worktree for an agmux PTY in Emacs branch-review using the agmux server host.",
+  inputSchema: {
+    ptyId: z.string().min(1).describe("Target running agmux PTY ID."),
+  },
+}, async ({ ptyId }) => {
+  return asJsonToolResult(await requestJson(
+    `/api/ptys/${encodeURIComponent(ptyId)}/open-branch-review`,
+    { method: "POST" },
+  ));
+});
+
 server.registerTool("list_agent_sessions", {
   title: "List agent sessions",
   description: "List discovered/restorable Claude, Codex, and Pi agent sessions.",
