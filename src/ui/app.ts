@@ -53,6 +53,15 @@ import {
   type PtyReorderPlacement,
 } from "./pty-order";
 import {
+  adjustSidebarWidth,
+  maxSidebarWidthForViewport,
+  normalizeSidebarWidth,
+  parseStoredSidebarWidth,
+  SIDEBAR_WIDTH_DEFAULT,
+  SIDEBAR_WIDTH_MIN,
+  SIDEBAR_WIDTH_STEP,
+} from "./sidebar-width";
+import {
   renderRestoreSessionModal,
   type RestoreSessionModalViewModel,
   type RestoreTargetChoice,
@@ -88,6 +97,9 @@ type ServerMsg = ServerToClientMessage;
 
 const $ = (id: string) => document.getElementById(id)!;
 
+const appEl = $("app") as HTMLDivElement;
+const sidebarEl = document.querySelector(".sidebar") as HTMLElement;
+const sidebarResizerEl = $("sidebar-resizer") as HTMLDivElement;
 const listEl = $("pty-list");
 const terminalEl = $("terminal");
 const eventsEl = document.getElementById("events");
@@ -616,13 +628,65 @@ btnFollow.classList.remove("visible");
 
 let viewerCounts: Record<string, number> = {};
 
+const SIDEBAR_WIDTH_KEY = "agmux:sidebarWidth";
+let sidebarWidth = parseStoredSidebarWidth(localStorage.getItem(SIDEBAR_WIDTH_KEY), window.innerWidth) ??
+  SIDEBAR_WIDTH_DEFAULT;
 let sidebarCollapsed = false;
+let sidebarFitRaf = 0;
+
+function updateSidebarResizeHandle(): void {
+  sidebarResizerEl.setAttribute("aria-valuemin", String(SIDEBAR_WIDTH_MIN));
+  sidebarResizerEl.setAttribute("aria-valuemax", String(maxSidebarWidthForViewport(window.innerWidth)));
+  sidebarResizerEl.setAttribute("aria-valuenow", String(sidebarWidth));
+  sidebarResizerEl.setAttribute("aria-valuetext", `${sidebarWidth}px`);
+}
+
+function applySidebarWidth(): void {
+  appEl.style.setProperty("--sidebar-width", `${sidebarWidth}px`);
+  updateSidebarResizeHandle();
+}
+
+function scheduleSidebarTerminalFit(): void {
+  if (sidebarFitRaf) return;
+  sidebarFitRaf = requestAnimationFrame(() => {
+    sidebarFitRaf = 0;
+    fitAndResizeActive();
+    reflowActiveTerm();
+  });
+}
+
+function syncSidebarWidthToViewport(): void {
+  const nextWidth = normalizeSidebarWidth(sidebarWidth, window.innerWidth);
+  if (nextWidth !== sidebarWidth) {
+    sidebarWidth = nextWidth;
+    applySidebarWidth();
+    scheduleSidebarTerminalFit();
+    return;
+  }
+  updateSidebarResizeHandle();
+}
+
+function setSidebarWidth(width: number, options: { persist?: boolean; fit?: boolean } = {}): void {
+  sidebarWidth = normalizeSidebarWidth(width, window.innerWidth);
+  applySidebarWidth();
+  if (options.persist ?? true) {
+    localStorage.setItem(SIDEBAR_WIDTH_KEY, String(sidebarWidth));
+  }
+  if (options.fit ?? true) {
+    scheduleSidebarTerminalFit();
+  }
+}
+
+function sidebarWidthFromPointer(ev: PointerEvent): number {
+  return ev.clientX - appEl.getBoundingClientRect().left;
+}
+
+applySidebarWidth();
+
 function toggleSidebar(): void {
   sidebarCollapsed = !sidebarCollapsed;
-  const app = document.getElementById("app")!;
-  const sidebar = document.querySelector(".sidebar")!;
-  app.classList.toggle("sidebar-collapsed", sidebarCollapsed);
-  sidebar.classList.toggle("collapsed", sidebarCollapsed);
+  appEl.classList.toggle("sidebar-collapsed", sidebarCollapsed);
+  sidebarEl.classList.toggle("collapsed", sidebarCollapsed);
   btnSidebarToggle.innerHTML = sidebarCollapsed ? "&raquo;" : "&laquo;";
   btnSidebarToggle.title = sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar";
   renderList();
@@ -635,10 +699,68 @@ function toggleSidebar(): void {
 btnSidebarToggle.addEventListener("click", toggleSidebar);
 
 // Prevent sidebar clicks from stealing keyboard focus from the terminal.
-document.querySelector(".sidebar")!.addEventListener("mousedown", (ev) => {
+sidebarEl.addEventListener("mousedown", (ev) => {
   const tag = (ev.target as HTMLElement).tagName;
   if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
   ev.preventDefault();
+});
+
+let sidebarResizePointerId: number | null = null;
+
+function finishSidebarResize(ev?: PointerEvent): void {
+  if (sidebarResizePointerId === null) return;
+  if (ev && ev.pointerId !== sidebarResizePointerId) return;
+  if (ev && sidebarResizerEl.hasPointerCapture(ev.pointerId)) {
+    sidebarResizerEl.releasePointerCapture(ev.pointerId);
+  }
+  sidebarResizePointerId = null;
+  appEl.classList.remove("sidebar-resizing");
+  document.body.classList.remove("sidebar-resizing");
+  localStorage.setItem(SIDEBAR_WIDTH_KEY, String(sidebarWidth));
+  focusActiveTerm();
+}
+
+sidebarResizerEl.addEventListener("pointerdown", (ev) => {
+  if (ev.button !== 0 || sidebarCollapsed || mobileViewport) return;
+  ev.preventDefault();
+  sidebarResizePointerId = ev.pointerId;
+  sidebarResizerEl.setPointerCapture(ev.pointerId);
+  appEl.classList.add("sidebar-resizing");
+  document.body.classList.add("sidebar-resizing");
+  setSidebarWidth(sidebarWidthFromPointer(ev), { persist: false });
+});
+
+sidebarResizerEl.addEventListener("pointermove", (ev) => {
+  if (sidebarResizePointerId !== ev.pointerId) return;
+  ev.preventDefault();
+  setSidebarWidth(sidebarWidthFromPointer(ev), { persist: false });
+});
+
+sidebarResizerEl.addEventListener("pointerup", finishSidebarResize);
+sidebarResizerEl.addEventListener("pointercancel", finishSidebarResize);
+sidebarResizerEl.addEventListener("lostpointercapture", () => finishSidebarResize());
+window.addEventListener("blur", () => finishSidebarResize());
+
+sidebarResizerEl.addEventListener("keydown", (ev) => {
+  if (sidebarCollapsed || mobileViewport) return;
+  switch (ev.key) {
+    case "ArrowLeft":
+      ev.preventDefault();
+      setSidebarWidth(adjustSidebarWidth(sidebarWidth, -SIDEBAR_WIDTH_STEP, window.innerWidth));
+      return;
+    case "ArrowRight":
+      ev.preventDefault();
+      setSidebarWidth(adjustSidebarWidth(sidebarWidth, SIDEBAR_WIDTH_STEP, window.innerWidth));
+      return;
+    case "Home":
+      ev.preventDefault();
+      setSidebarWidth(SIDEBAR_WIDTH_MIN);
+      return;
+    case "End":
+      ev.preventDefault();
+      setSidebarWidth(maxSidebarWidthForViewport(window.innerWidth));
+      return;
+  }
 });
 
 // --- Theme ---
@@ -4992,7 +5114,11 @@ const ro = new ResizeObserver(() => {
   requestAnimationFrame(() => { fitAndResizeActive(); reflowActiveTerm(); });
 });
 ro.observe(terminalEl);
-window.addEventListener("resize", () => { fitAndResizeActive(); reflowActiveTerm(); });
+window.addEventListener("resize", () => {
+  syncSidebarWidthToViewport();
+  fitAndResizeActive();
+  reflowActiveTerm();
+});
 
 // --- Keybindings ---
 
