@@ -175,10 +175,13 @@ body.sidebar-resizing {
 }
 .sidebar.collapsed .pty-item.active {
   opacity: 1;
-  border-color: color-mix(in srgb, var(--accent) 45%, var(--surface-border));
-  border-left-color: color-mix(in srgb, var(--accent) 45%, var(--surface-border));
-  box-shadow: 0 0 8px color-mix(in srgb, var(--accent) 30%, transparent);
-  background: var(--surface-hover);
+  border-color: color-mix(in srgb, var(--accent) 72%, var(--surface-border));
+  border-left-color: color-mix(in srgb, var(--accent) 72%, var(--surface-border));
+  box-shadow:
+    inset 0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent),
+    0 0 0 2px color-mix(in srgb, var(--accent) 24%, transparent),
+    0 0 12px color-mix(in srgb, var(--accent) 28%, transparent);
+  background: color-mix(in srgb, var(--accent) 16%, var(--surface-hover));
 }
 .sidebar.collapsed .pty-item.ready-unviewed.state-ready {
   background: linear-gradient(
@@ -430,10 +433,23 @@ button:disabled {
 
 .pty-item.active {
   opacity: 1;
-  border-color: color-mix(in srgb, var(--accent) 35%, var(--surface-border));
-  border-left: 2px solid var(--pty-color, var(--accent));
-  box-shadow: none;
-  background: var(--surface-hover);
+  border-color: color-mix(in srgb, var(--accent) 62%, var(--surface-border));
+  border-left-color: var(--accent);
+  box-shadow:
+    inset 4px 0 0 var(--accent),
+    inset 0 0 0 1px color-mix(in srgb, var(--accent) 28%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--accent) 18%, transparent);
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--accent) 18%, var(--surface-hover)),
+    color-mix(in srgb, var(--accent) 8%, var(--surface-hover)) 52%,
+    var(--surface-hover)
+  );
+}
+
+.pty-item.active .primary {
+  color: var(--text);
+  font-weight: 750;
 }
 
 .pty-item.ready-unviewed.state-ready {
@@ -450,11 +466,11 @@ button:disabled {
   box-shadow: 0 0 0 4px color-mix(in srgb, var(--ready) 24%, transparent);
 }
 
-.pty-item.state-busy {
+.pty-item.state-busy:not(.active) {
   background: var(--surface);
 }
 
-.pty-item.state-unknown {
+.pty-item.state-unknown:not(.active) {
   background: var(--surface);
 }
 
