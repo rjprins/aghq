@@ -16,6 +16,9 @@ describe("emacs branch-review integration", () => {
     expect(form).toContain("(require 'branch-review nil t)");
     expect(form).toContain('(file-name-as-directory "/tmp/project feature")');
     expect(form).toContain("(call-interactively 'branch-review)");
+    expect(form).toContain("(make-frame-visible frame)");
+    expect(form).toContain("(raise-frame frame)");
+    expect(form).toContain("(select-frame-set-input-focus frame)");
   });
 
   test("builds a Magit status eval form with the worktree as default-directory", () => {
@@ -24,6 +27,9 @@ describe("emacs branch-review integration", () => {
     expect(form).toContain("(require 'magit nil t)");
     expect(form).toContain('(file-name-as-directory "/tmp/project feature")');
     expect(form).toContain("(call-interactively 'magit-status)");
+    expect(form).toContain("(make-frame-visible frame)");
+    expect(form).toContain("(raise-frame frame)");
+    expect(form).toContain("(select-frame-set-input-focus frame)");
   });
 
   test("resolves a nested cwd to the git worktree root", async () => {
@@ -52,8 +58,10 @@ describe("emacs branch-review integration", () => {
     });
     expect(calls[1]?.file).toBe("emacsclient");
     expect(calls[1]?.args[0]).toBe("-n");
-    expect(calls[1]?.args[1]).toBe("--eval");
-    expect(calls[1]?.args[2]).toContain("/repo/worktree");
+    expect(calls[1]?.args[1]).toBe("--reuse-frame");
+    expect(calls[1]?.args[2]).toBe("--eval");
+    expect(calls[1]?.args[3]).toContain("/repo/worktree");
+    expect(calls[1]?.args[3]).toContain("select-frame-set-input-focus");
   });
 
   test("opens Magit through emacsclient", async () => {
@@ -69,8 +77,10 @@ describe("emacs branch-review integration", () => {
     });
     expect(calls[1]?.file).toBe("emacsclient");
     expect(calls[1]?.args[0]).toBe("-n");
-    expect(calls[1]?.args[1]).toBe("--eval");
-    expect(calls[1]?.args[2]).toContain("/repo/worktree");
-    expect(calls[1]?.args[2]).toContain("magit-status");
+    expect(calls[1]?.args[1]).toBe("--reuse-frame");
+    expect(calls[1]?.args[2]).toBe("--eval");
+    expect(calls[1]?.args[3]).toContain("/repo/worktree");
+    expect(calls[1]?.args[3]).toContain("magit-status");
+    expect(calls[1]?.args[3]).toContain("select-frame-set-input-focus");
   });
 });
