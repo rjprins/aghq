@@ -848,7 +848,7 @@ button:disabled {
 
 .session-context-bar {
   display: flex;
-  align-items: flex-start;
+  align-items: stretch;
   gap: 6px;
   min-width: 0;
 }
@@ -1081,7 +1081,11 @@ button:disabled {
 }
 
 .session-context-action {
-  align-self: flex-start;
+  align-self: stretch;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin: 2px 0;
 }
 
 .input-history-label {
