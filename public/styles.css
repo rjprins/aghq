@@ -660,6 +660,13 @@ button:disabled {
   text-overflow: ellipsis;
 }
 
+.worktree-badge {
+  color: var(--text);
+  font-weight: 600;
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface-hover));
+  border-color: color-mix(in srgb, var(--accent) 32%, var(--surface-border));
+}
+
 .process-badge {
   color: color-mix(in srgb, var(--text) 70%, var(--muted));
   max-width: 140px;
