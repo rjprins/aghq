@@ -103,6 +103,7 @@ const sidebarResizerEl = $("sidebar-resizer") as HTMLDivElement;
 const listEl = $("pty-list");
 const terminalEl = $("terminal");
 const eventsEl = document.getElementById("events");
+const sessionContextBarEl = $("session-context-bar");
 const inputContextEl = $("input-context");
 const inputContextToggleEl = $("input-context-toggle");
 const inputContextLastEl = $("input-context-last");
@@ -2680,6 +2681,7 @@ function syncProviderHistoryStateWithPtys(): void {
 
 function renderInputContextBar(): void {
   if (!activePtyId) {
+    sessionContextBarEl.classList.add("hidden");
     inputContextEl.classList.add("hidden");
     inputContextLastEl.textContent = "(none yet)";
     btnBranchReview.disabled = true;
@@ -2691,6 +2693,7 @@ function renderInputContextBar(): void {
     return;
   }
 
+  sessionContextBarEl.classList.remove("hidden");
   inputContextEl.classList.remove("hidden");
 
   const providerHistory = ptyProviderInputHistory.get(activePtyId) ?? [];

@@ -846,12 +846,25 @@ button:disabled {
   display: none;
 }
 
+.session-context-bar {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+}
+
+.session-context-bar.hidden {
+  display: none;
+}
+
 .input-context {
+  flex: 1 1 auto;
   border: 1px solid var(--line);
   background: var(--overlay);
   border-radius: 6px;
   padding: 6px 8px;
   min-height: 0;
+  min-width: 0;
 }
 
 .input-context.hidden {
@@ -1065,6 +1078,10 @@ button:disabled {
 .input-context-action:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+}
+
+.session-context-action {
+  align-self: flex-start;
 }
 
 .input-history-label {
