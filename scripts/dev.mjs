@@ -1,8 +1,9 @@
 import { execFile, execSync, spawn } from "node:child_process";
-import fs from "node:fs";
 import net from "node:net";
 import path from "node:path";
 import process from "node:process";
+
+import chokidar from "chokidar";
 
 const repo = process.cwd();
 const binExt = process.platform === "win32" ? ".cmd" : "";
@@ -100,40 +101,80 @@ function scheduleRebuild() {
   }, 200);
 }
 
-try {
-  const uiDir = path.join(repo, "src", "ui");
-  fs.watch(uiDir, { recursive: true }, (_event, filename) => {
-    if (!filename) return;
-    if (filename.endsWith(".ts") || filename.endsWith(".tsx") || filename.endsWith(".css")) {
-      scheduleRebuild();
-    }
-  });
-} catch {
-  console.warn("[dev] Could not watch src/ui/ for changes");
-}
+const uiDir = path.join(repo, "src", "ui");
+const uiWatcher = chokidar.watch(uiDir, { ignoreInitial: true });
+uiWatcher.on("all", (_event, filename) => {
+  if (filename.endsWith(".ts") || filename.endsWith(".tsx") || filename.endsWith(".css")) {
+    scheduleRebuild();
+  }
+});
 
 console.log("[dev] Starting TypeScript compiler in watch mode...");
 const tsc = spawnChild(tscPath, ["-p", "tsconfig.json", "--watch"], "tsc");
 
-// Start Node server with --watch (restarts on src/ changes, excluding src/ui/).
+// Restart the server explicitly. Node's --watch-path is not reliably recursive
+// for nested source files on every platform.
 console.log("[dev] Starting server (watch mode)...");
-const server = spawnChild(
-  process.execPath,
-  [
-    "--watch",
-    "--watch-path=src",
-    "--watch-preserve-output",
-    "--import",
-    "tsx",
-    "src/server.ts",
-  ],
-  "server",
-  {
-    PORT: String(port),
-    // Prevent the Node server from opening a browser on every restart.
-    AGMUX_NO_OPEN: "1",
-  },
-);
+let shuttingDown = false;
+let restartingServer = false;
+let serverRestartTimer = null;
+let server = spawnServer();
+
+const srcDir = path.join(repo, "src");
+const serverWatcher = chokidar.watch(srcDir, { ignoreInitial: true });
+serverWatcher.on("all", (_event, filename) => {
+  if (!filename.endsWith(".ts") && !filename.endsWith(".tsx")) return;
+  const resolved = path.resolve(filename);
+  if (resolved.startsWith(`${uiDir}${path.sep}`)) return;
+  scheduleServerRestart();
+});
+
+function spawnServer() {
+  const child = spawnChild(
+    process.execPath,
+    ["--import", "tsx", "src/server.ts"],
+    "server",
+    {
+      PORT: String(port),
+      // Prevent the Node server from opening a browser on every restart.
+      AGMUX_NO_OPEN: "1",
+    },
+  );
+  child.on("exit", (code) => {
+    if (shuttingDown || restartingServer) return;
+    if (code && code !== 0) shutdown(code);
+  });
+  return child;
+}
+
+function scheduleServerRestart() {
+  if (serverRestartTimer) return;
+  serverRestartTimer = setTimeout(() => {
+    serverRestartTimer = null;
+    restartServer();
+  }, 200);
+}
+
+function restartServer() {
+  if (shuttingDown || restartingServer) return;
+  console.log("[dev] Server source changed, restarting...");
+  restartingServer = true;
+  const previous = server;
+  let restarted = false;
+  const forceTimer = setTimeout(() => {
+    if (previous.exitCode === null && previous.signalCode === null) {
+      previous.kill("SIGKILL");
+    }
+  }, 5000);
+  previous.once("exit", () => {
+    if (restarted) return;
+    restarted = true;
+    clearTimeout(forceTimer);
+    restartingServer = false;
+    server = spawnServer();
+  });
+  previous.kill("SIGINT");
+}
 
 // Open the browser once the server is actually listening.
 const appUrl = `http://127.0.0.1:${port}`;
@@ -165,16 +206,15 @@ if (process.env.AGMUX_NO_OPEN !== "1") {
 }
 
 function shutdown(code) {
+  shuttingDown = true;
+  void uiWatcher.close();
+  void serverWatcher.close();
   if (!tsc.killed) tsc.kill("SIGINT");
   if (!server.killed) server.kill("SIGINT");
   process.exit(code);
 }
 
 tsc.on("exit", (code) => {
-  if (code && code !== 0) shutdown(code);
-});
-
-server.on("exit", (code) => {
   if (code && code !== 0) shutdown(code);
 });
 
