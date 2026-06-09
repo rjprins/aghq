@@ -119,9 +119,10 @@ describe("route wiring", () => {
     await fastify.close();
   });
 
-  it("opens branch-review for a running PTY cwd", async () => {
+  it("opens Emacs worktree actions for a running PTY cwd", async () => {
     const fastify = Fastify();
-    const opened: string[] = [];
+    const branchReviews: string[] = [];
+    const magits: string[] = [];
     const runtime = {
       ptys: {
         spawn: () => {},
@@ -170,15 +171,24 @@ describe("route wiring", () => {
       defaultBaseBranch: "main",
       agmuxSession: "agmux",
       openBranchReview: async (cwd: string) => {
-        opened.push(cwd);
+        branchReviews.push(cwd);
+        return { path: "/repo/wt" };
+      },
+      openMagit: async (cwd: string) => {
+        magits.push(cwd);
         return { path: "/repo/wt" };
       },
     });
 
-    const res = await fastify.inject({ method: "POST", url: "/api/ptys/pty-1/open-branch-review" });
-    expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ ok: true, path: "/repo/wt" });
-    expect(opened).toEqual(["/repo/wt/src"]);
+    const branchReviewRes = await fastify.inject({ method: "POST", url: "/api/ptys/pty-1/open-branch-review" });
+    expect(branchReviewRes.statusCode).toBe(200);
+    expect(branchReviewRes.json()).toEqual({ ok: true, path: "/repo/wt" });
+    expect(branchReviews).toEqual(["/repo/wt/src"]);
+
+    const magitRes = await fastify.inject({ method: "POST", url: "/api/ptys/pty-1/open-magit" });
+    expect(magitRes.statusCode).toBe(200);
+    expect(magitRes.json()).toEqual({ ok: true, path: "/repo/wt" });
+    expect(magits).toEqual(["/repo/wt/src"]);
     await fastify.close();
   });
 

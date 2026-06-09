@@ -108,6 +108,7 @@ const inputContextEl = $("input-context");
 const inputContextToggleEl = $("input-context-toggle");
 const inputContextLastEl = $("input-context-last");
 const btnBranchReview = $("btn-branch-review") as HTMLButtonElement;
+const btnMagit = $("btn-magit") as HTMLButtonElement;
 const inputHistoryLabelEl = $("input-history-label");
 const inputHistoryListEl = $("input-history-list");
 const prContextEl = $("pr-context");
@@ -121,6 +122,7 @@ let activePtyId: string | null = null;
 let pendingActivePtyId: string | null = null;
 let inputHistoryExpanded = false;
 let branchReviewOpening = false;
+let magitOpening = false;
 let wsConnected = false;
 
 const MOBILE_VIEW_KEY = "agmux:mobileView";
@@ -2686,6 +2688,8 @@ function renderInputContextBar(): void {
     inputContextLastEl.textContent = "(none yet)";
     btnBranchReview.disabled = true;
     btnBranchReview.setAttribute("aria-busy", "false");
+    btnMagit.disabled = true;
+    btnMagit.setAttribute("aria-busy", "false");
     inputHistoryLabelEl.textContent = "History (0)";
     inputContextToggleEl.setAttribute("aria-expanded", "false");
     inputHistoryListEl.classList.add("hidden");
@@ -2710,6 +2714,8 @@ function renderInputContextBar(): void {
 
   btnBranchReview.disabled = branchReviewOpening;
   btnBranchReview.setAttribute("aria-busy", branchReviewOpening ? "true" : "false");
+  btnMagit.disabled = magitOpening;
+  btnMagit.setAttribute("aria-busy", magitOpening ? "true" : "false");
   inputHistoryLabelEl.textContent = `History (${history.length})`;
   inputContextToggleEl.setAttribute("aria-expanded", inputHistoryExpanded ? "true" : "false");
 
@@ -4982,23 +4988,31 @@ inputContextToggleEl.addEventListener("keydown", (ev) => {
   toggleInputHistory();
 });
 
-async function openActiveBranchReview(): Promise<void> {
-  if (!activePtyId || branchReviewOpening) return;
+type EmacsWorktreeAction = {
+  busy: () => boolean;
+  setBusy: (busy: boolean) => void;
+  route: string;
+  successLabel: string;
+  failureLabel: string;
+};
+
+async function openActiveEmacsWorktreeAction(action: EmacsWorktreeAction): Promise<void> {
+  if (!activePtyId || action.busy()) return;
   const ptyId = activePtyId;
-  branchReviewOpening = true;
+  action.setBusy(true);
   renderInputContextBar();
   try {
-    const res = await authFetch(`/api/ptys/${encodeURIComponent(ptyId)}/open-branch-review`, { method: "POST" });
+    const res = await authFetch(`/api/ptys/${encodeURIComponent(ptyId)}/${action.route}`, { method: "POST" });
     if (!res.ok) {
-      addEvent(`Failed to open branch review: ${await readApiError(res)}`);
+      addEvent(`Failed to open ${action.failureLabel}: ${await readApiError(res)}`);
       return;
     }
     const json = (await res.json()) as { path?: string };
-    addEvent(`Opened branch review${json.path ? `: ${json.path}` : ""}`);
+    addEvent(`Opened ${action.successLabel}${json.path ? `: ${json.path}` : ""}`);
   } catch (err) {
-    addEvent(`Failed to open branch review: ${errorMessage(err)}`);
+    addEvent(`Failed to open ${action.failureLabel}: ${errorMessage(err)}`);
   } finally {
-    branchReviewOpening = false;
+    action.setBusy(false);
     renderInputContextBar();
     focusActiveTerm();
   }
@@ -5007,7 +5021,29 @@ async function openActiveBranchReview(): Promise<void> {
 btnBranchReview.addEventListener("click", (ev) => {
   ev.preventDefault();
   ev.stopPropagation();
-  void openActiveBranchReview();
+  void openActiveEmacsWorktreeAction({
+    busy: () => branchReviewOpening,
+    setBusy: (busy) => {
+      branchReviewOpening = busy;
+    },
+    route: "open-branch-review",
+    successLabel: "branch review",
+    failureLabel: "branch review",
+  });
+});
+
+btnMagit.addEventListener("click", (ev) => {
+  ev.preventDefault();
+  ev.stopPropagation();
+  void openActiveEmacsWorktreeAction({
+    busy: () => magitOpening,
+    setBusy: (busy) => {
+      magitOpening = busy;
+    },
+    route: "open-magit",
+    successLabel: "Magit",
+    failureLabel: "Magit",
+  });
 });
 
 function subscribeIfNeeded(ptyId: string): void {

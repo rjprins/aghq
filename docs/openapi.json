@@ -233,6 +233,20 @@
         }
       }
     },
+    "/api/ptys/{id}/open-magit": {
+      "post": {
+        "summary": "Open a PTY worktree in Emacs Magit",
+        "parameters": [
+          { "$ref": "#/components/parameters/ptyId" }
+        ],
+        "responses": {
+          "200": { "description": "Opened" },
+          "400": { "description": "Bad request" },
+          "404": { "description": "Running PTY not found" },
+          "500": { "description": "Emacs open failed" }
+        }
+      }
+    },
     "/api/ptys/{id}/resume": {
       "post": {
         "summary": "Legacy runtime resume endpoint",

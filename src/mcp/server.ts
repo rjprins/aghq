@@ -255,6 +255,19 @@ server.registerTool("open_branch_review", {
   ));
 });
 
+server.registerTool("open_magit", {
+  title: "Open Magit in Emacs",
+  description: "Open the worktree for an agmux PTY in Emacs Magit using the agmux server host.",
+  inputSchema: {
+    ptyId: z.string().min(1).describe("Target running agmux PTY ID."),
+  },
+}, async ({ ptyId }) => {
+  return asJsonToolResult(await requestJson(
+    `/api/ptys/${encodeURIComponent(ptyId)}/open-magit`,
+    { method: "POST" },
+  ));
+});
+
 server.registerTool("list_agent_sessions", {
   title: "List agent sessions",
   description: "List discovered/restorable Claude, Codex, and Pi agent sessions.",

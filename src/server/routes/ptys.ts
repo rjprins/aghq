@@ -25,7 +25,7 @@ import {
   resumeArgsForProvider,
   type AgentSessionService,
 } from "../agent-sessions.js";
-import { openBranchReviewInEmacs } from "../emacs.js";
+import { openBranchReviewInEmacs, openMagitInEmacs } from "../emacs.js";
 import { expandHomePath } from "../utils.js";
 
 type PtyRoutesDeps = {
@@ -49,6 +49,7 @@ type PtyRoutesDeps = {
   defaultBaseBranch: string;
   agmuxSession: string;
   openBranchReview?: (cwd: string) => Promise<{ path: string }>;
+  openMagit?: (cwd: string) => Promise<{ path: string }>;
 };
 
 export const FLAG_DEFAULTS: Record<string, Record<string, string>> = {
@@ -97,6 +98,7 @@ export function registerPtyRoutes(deps: PtyRoutesDeps): void {
     defaultBaseBranch,
     agmuxSession,
     openBranchReview = openBranchReviewInEmacs,
+    openMagit = openMagitInEmacs,
   } = deps;
   const CODEX_ATTACH_POLL_MS = 750;
   const CODEX_ATTACH_TIMEOUT_MS = 30_000;
@@ -218,6 +220,27 @@ export function registerPtyRoutes(deps: PtyRoutesDeps): void {
     }
     try {
       const result = await openBranchReview(summary.cwd);
+      return { ok: true, path: result.path };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      reply.code(500);
+      return { error: message };
+    }
+  });
+
+  fastify.post("/api/ptys/:id/open-magit", async (req, reply) => {
+    const id = (req.params as any).id as string;
+    const summary = runtime.ptys.getSummary(id) as PtySummary | null;
+    if (!summary || summary.status !== "running") {
+      reply.code(404);
+      return { error: "running PTY not found" };
+    }
+    if (!summary.cwd) {
+      reply.code(400);
+      return { error: "PTY has no working directory" };
+    }
+    try {
+      const result = await openMagit(summary.cwd);
       return { ok: true, path: result.path };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

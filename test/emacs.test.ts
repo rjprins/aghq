@@ -2,7 +2,9 @@ import { describe, expect, test } from "vitest";
 
 import {
   buildBranchReviewEval,
+  buildMagitStatusEval,
   openBranchReviewInEmacs,
+  openMagitInEmacs,
   resolveGitWorktreeRoot,
   type ExecFileText,
 } from "../src/server/emacs.js";
@@ -14,6 +16,14 @@ describe("emacs branch-review integration", () => {
     expect(form).toContain("(require 'branch-review nil t)");
     expect(form).toContain('(file-name-as-directory "/tmp/project feature")');
     expect(form).toContain("(call-interactively 'branch-review)");
+  });
+
+  test("builds a Magit status eval form with the worktree as default-directory", () => {
+    const form = buildMagitStatusEval("/tmp/project feature");
+
+    expect(form).toContain("(require 'magit nil t)");
+    expect(form).toContain('(file-name-as-directory "/tmp/project feature")');
+    expect(form).toContain("(call-interactively 'magit-status)");
   });
 
   test("resolves a nested cwd to the git worktree root", async () => {
@@ -44,5 +54,23 @@ describe("emacs branch-review integration", () => {
     expect(calls[1]?.args[0]).toBe("-n");
     expect(calls[1]?.args[1]).toBe("--eval");
     expect(calls[1]?.args[2]).toContain("/repo/worktree");
+  });
+
+  test("opens Magit through emacsclient", async () => {
+    const calls: Array<{ file: string; args: string[]; cwd?: string }> = [];
+    const execFileText: ExecFileText = async (file, args, options) => {
+      calls.push({ file, args, cwd: options?.cwd });
+      if (file === "git") return { stdout: "/repo/worktree\n", stderr: "" };
+      return { stdout: "", stderr: "" };
+    };
+
+    await expect(openMagitInEmacs("/repo/worktree/src", execFileText)).resolves.toEqual({
+      path: "/repo/worktree",
+    });
+    expect(calls[1]?.file).toBe("emacsclient");
+    expect(calls[1]?.args[0]).toBe("-n");
+    expect(calls[1]?.args[1]).toBe("--eval");
+    expect(calls[1]?.args[2]).toContain("/repo/worktree");
+    expect(calls[1]?.args[2]).toContain("magit-status");
   });
 });

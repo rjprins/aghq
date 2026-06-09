@@ -23,6 +23,15 @@ export function buildBranchReviewEval(worktreePath: string): string {
   ].join("\n");
 }
 
+export function buildMagitStatusEval(worktreePath: string): string {
+  return [
+    "(progn",
+    "  (require 'magit nil t)",
+    `  (let ((default-directory (file-name-as-directory ${elispString(path.resolve(worktreePath))})))`,
+    "    (call-interactively 'magit-status)))",
+  ].join("\n");
+}
+
 export async function resolveGitWorktreeRoot(cwd: string, execFileText: ExecFileText = execFile): Promise<string> {
   const resolvedCwd = path.resolve(cwd);
   try {
@@ -44,6 +53,18 @@ export async function openBranchReviewInEmacs(
   const worktreePath = await resolveGitWorktreeRoot(cwd, execFileText);
   const emacsclient = process.env.AGMUX_EMACSCLIENT?.trim() || "emacsclient";
   await execFileText(emacsclient, ["-n", "--eval", buildBranchReviewEval(worktreePath)], {
+    timeout: 10_000,
+  });
+  return { path: worktreePath };
+}
+
+export async function openMagitInEmacs(
+  cwd: string,
+  execFileText: ExecFileText = execFile,
+): Promise<{ path: string }> {
+  const worktreePath = await resolveGitWorktreeRoot(cwd, execFileText);
+  const emacsclient = process.env.AGMUX_EMACSCLIENT?.trim() || "emacsclient";
+  await execFileText(emacsclient, ["-n", "--eval", buildMagitStatusEval(worktreePath)], {
     timeout: 10_000,
   });
   return { path: worktreePath };
