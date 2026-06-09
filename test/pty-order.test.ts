@@ -80,7 +80,7 @@ describe("orderRunningPtysForSidebar", () => {
     expect(ordered.map((item) => item.id)).toEqual(["alpha-2", "alpha-1", "beta-2", "beta-1"]);
   });
 
-  test("sorts sessions by worktree name inside each sidebar group", () => {
+  test("manual session order can cross worktrees inside a sidebar group", () => {
     const ptys = [
       { ...pty("feature-b-2", "/repos/alpha/.worktrees/feature-b", 40), worktree: "feature-b" },
       { ...pty("root", "/repos/alpha", 10), worktree: null },
@@ -91,11 +91,10 @@ describe("orderRunningPtysForSidebar", () => {
     const ordered = orderRunningPtysForSidebar(ptys, {
       pinnedDirectories: new Set<string>(),
       getGroupKey: () => "/repos/alpha",
-      getWorktreeKey: (item) => item.worktree ?? null,
       manualOrder: ["feature-b-2", "feature-a", "feature-b-1", "root"],
     });
 
-    expect(ordered.map((item) => item.id)).toEqual(["root", "feature-a", "feature-b-2", "feature-b-1"]);
+    expect(ordered.map((item) => item.id)).toEqual(["feature-b-2", "feature-a", "feature-b-1", "root"]);
   });
 });
 

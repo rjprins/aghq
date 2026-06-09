@@ -4465,7 +4465,6 @@ function reorderSidebarPty(sourcePtyId: string, targetPtyId: string, placement: 
   const target = ptys.find((p) => p.id === targetPtyId && p.status === "running");
   if (!source || !target) return;
   if (runningPtyGroupKey(source) !== runningPtyGroupKey(target)) return;
-  if ((ptyWorktreeLabel(source) ?? "") !== (ptyWorktreeLabel(target) ?? "")) return;
 
   const currentOrder = runningPtys().map((p) => p.id);
   const nextOrder = reorderPtyIds(currentOrder, sourcePtyId, targetPtyId, placement);
@@ -4481,7 +4480,6 @@ function renderList(): void {
   const runningPtys = orderRunningPtysForSidebar(ptys, {
     pinnedDirectories,
     getGroupKey: runningPtyGroupKey,
-    getWorktreeKey: ptyWorktreeLabel,
     manualOrder: sidebarPtyOrder,
   });
   const activeAgentSessionIds = new Set(
@@ -5003,7 +5001,6 @@ function runningPtys(): PtySummary[] {
   return orderRunningPtysForSidebar(ptys, {
     pinnedDirectories,
     getGroupKey: runningPtyGroupKey,
-    getWorktreeKey: ptyWorktreeLabel,
     manualOrder: sidebarPtyOrder,
   });
 }
