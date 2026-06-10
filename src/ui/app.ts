@@ -194,6 +194,7 @@ const PINNED_DIRECTORIES_KEY = "agmux:pinnedDirectories";
 const ARCHIVED_DIRECTORIES_KEY = "agmux:archivedDirectories";
 const SIDEBAR_PTY_ORDER_KEY = "agmux:sidebarPtyOrder";
 const PR_WAITING_FOR_REVIEW_KEY = "agmux:prWaitingForReview";
+const REQUIRED_PR_APPROVALS = 2;
 const hiddenAgentSessionIds = new Set<string>();
 const pinnedDirectories = new Set<string>();
 const archivedDirectories = new Set<string>();
@@ -3931,8 +3932,9 @@ function buildRunningPtyItem(p: PtySummary): RunningPtyItem {
     readyUnviewed: unviewedReadyPtys.has(p.id) && p.id !== activePtyId,
     prMarker: p.pr ? (p.pr.hasNewComments && p.id !== activePtyId ? "new" : "seen") : undefined,
     prUnresolved: p.pr?.unresolvedCount,
-    prApproved: prApprovalCount > 0,
+    prApproved: prApprovalCount >= REQUIRED_PR_APPROVALS,
     prApprovalCount,
+    prRequiredApprovals: REQUIRED_PR_APPROVALS,
     prWaitingForReview: p.pr ? prWaitingForReviewPtys.has(p.id) : undefined,
     readyState: readyInfo.state,
     readyIndicator: readyInfo.indicator,

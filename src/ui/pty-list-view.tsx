@@ -24,6 +24,7 @@ export type RunningPtyItem = {
   prUnresolved?: number;
   prApproved?: boolean;
   prApprovalCount?: number;
+  prRequiredApprovals?: number;
   prWaitingForReview?: boolean;
   readyState: ReadyState;
   readyIndicator: ReadyIndicator;
@@ -269,6 +270,10 @@ function runningPtyRowFromPoint(clientX: number, clientY: number): HTMLElement |
 function PtyItemRow(
   { item, groupKey, handlers }: { item: RunningPtyItem; groupKey: string; handlers: PtyListHandlers },
 ) {
+  const approvalProgress = item.prRequiredApprovals != null && item.prApprovalCount != null
+    ? `${item.prApprovalCount}/${item.prRequiredApprovals} approvals`
+    : null;
+
   return (
     <li
       key={item.id}
@@ -385,14 +390,16 @@ function PtyItemRow(
                 type="button"
                 className={`pr-comment-badge ${item.prMarker}${item.prWaitingForReview ? " waiting-review" : ""}${item.prApproved ? " approved" : ""}`}
                 title={item.prApproved
-                  ? `PR approved by ${item.prApprovalCount ?? 1} reviewer(s) - click to mark waiting for review`
+                  ? `PR has ${approvalProgress ?? "enough approvals"} - click to mark waiting for review`
                   : item.prWaitingForReview
-                  ? `Waiting for PR review/approval (${item.prUnresolved ?? 0} unresolved) - click to mark as work in progress`
+                  ? `Waiting for PR review/approval${approvalProgress ? ` (${approvalProgress})` : ""} - click to mark as work in progress`
+                  : approvalProgress
+                  ? `PR has ${approvalProgress} - click to mark waiting for review`
                   : item.prMarker === "new"
                   ? `${item.prUnresolved ?? 0} unresolved PR comment(s) - new - click to mark waiting for review`
                   : `Mark as waiting for PR review (${item.prUnresolved ?? 0} unresolved)`}
                 aria-label={item.prApproved
-                  ? `PR approved by ${item.prApprovalCount ?? 1} reviewer(s) for ${item.name}`
+                  ? `PR has ${approvalProgress ?? "enough approvals"} for ${item.name}`
                   : item.prWaitingForReview
                   ? `PR is waiting for review or approval for ${item.name}`
                   : `Mark PR as waiting for review for ${item.name}`}
