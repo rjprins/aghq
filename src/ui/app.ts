@@ -193,9 +193,11 @@ const HIDDEN_AGENT_SESSIONS_KEY = "agmux:hiddenAgentSessions";
 const PINNED_DIRECTORIES_KEY = "agmux:pinnedDirectories";
 const ARCHIVED_DIRECTORIES_KEY = "agmux:archivedDirectories";
 const SIDEBAR_PTY_ORDER_KEY = "agmux:sidebarPtyOrder";
+const PR_WAITING_FOR_REVIEW_KEY = "agmux:prWaitingForReview";
 const hiddenAgentSessionIds = new Set<string>();
 const pinnedDirectories = new Set<string>();
 const archivedDirectories = new Set<string>();
+const prWaitingForReviewPtys = new Set<string>();
 let sidebarPtyOrder: string[] = [];
 
 function loadHiddenAgentSessions(): void {
@@ -292,6 +294,44 @@ function saveSidebarPtyOrder(): void {
   } catch {
     // ignore
   }
+}
+
+function loadPrWaitingForReviewPtys(): void {
+  try {
+    const raw = localStorage.getItem(PR_WAITING_FOR_REVIEW_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return;
+    for (const value of parsed) {
+      if (typeof value === "string" && value.trim().length > 0) {
+        prWaitingForReviewPtys.add(value);
+      }
+    }
+  } catch {
+    // ignore
+  }
+}
+
+function savePrWaitingForReviewPtys(): void {
+  try {
+    if (prWaitingForReviewPtys.size === 0) {
+      localStorage.removeItem(PR_WAITING_FOR_REVIEW_KEY);
+      return;
+    }
+    localStorage.setItem(PR_WAITING_FOR_REVIEW_KEY, JSON.stringify([...prWaitingForReviewPtys]));
+  } catch {
+    // ignore
+  }
+}
+
+function prunePrWaitingForReviewPtys(knownPtyIds: Set<string>): void {
+  let changed = false;
+  for (const ptyId of [...prWaitingForReviewPtys]) {
+    if (knownPtyIds.has(ptyId)) continue;
+    prWaitingForReviewPtys.delete(ptyId);
+    changed = true;
+  }
+  if (changed) savePrWaitingForReviewPtys();
 }
 
 function pruneSidebarPtyOrder(): void {
@@ -437,6 +477,7 @@ loadHiddenAgentSessions();
 loadPinnedDirectories();
 loadArchivedDirectories();
 loadSidebarPtyOrder();
+loadPrWaitingForReviewPtys();
 
 async function refreshWorktreeCache(): Promise<void> {
   try {
@@ -1270,8 +1311,11 @@ function remapPtyState(oldPtyId: string, newPtyId: string): void {
 
   moveSetValue(subscribed);
   moveSetValue(unviewedReadyPtys);
+  const hadWaitingReview = prWaitingForReviewPtys.has(oldPtyId);
+  moveSetValue(prWaitingForReviewPtys);
   moveSetValue(pendingHistorySaves);
   moveSetValue(ptyProviderHistoryLoading);
+  if (hadWaitingReview) savePrWaitingForReviewPtys();
 
   if (pendingActivePtyId === oldPtyId) pendingActivePtyId = newPtyId;
   if (mobileReparentedPtyId === oldPtyId) mobileReparentedPtyId = newPtyId;
@@ -1567,6 +1611,7 @@ function onServerMsg(msg: ServerMsg): void {
     const running = new Set(runningPtys.map((p) => p.id));
     const allKnown = new Set(ptys.map((p) => p.id));
     prunePtyInputMeta(allKnown);
+    prunePrWaitingForReviewPtys(running);
     for (const p of ptys) {
       const previousReady = ptyReady.get(p.id);
       const nextReady = readinessFromSummary(p);
@@ -1943,6 +1988,7 @@ async function refreshList(options: RefreshListOptions = {}): Promise<void> {
     agentSessions = nextAgentSessions;
 
     syncProviderHistoryStateWithPtys();
+    prunePrWaitingForReviewPtys(new Set(ptys.filter((p) => p.status === "running").map((p) => p.id)));
     updateTerminalVisibility();
     renderList();
   } catch (err) {
@@ -3884,7 +3930,7 @@ function buildRunningPtyItem(p: PtySummary): RunningPtyItem {
     readyUnviewed: unviewedReadyPtys.has(p.id) && p.id !== activePtyId,
     prMarker: p.pr ? (p.pr.hasNewComments && p.id !== activePtyId ? "new" : "seen") : undefined,
     prUnresolved: p.pr?.unresolvedCount,
-    prUrl: p.pr?.url,
+    prWaitingForReview: p.pr ? prWaitingForReviewPtys.has(p.id) : undefined,
     readyState: readyInfo.state,
     readyIndicator: readyInfo.indicator,
     readyReason: readyInfo.reason,
@@ -4655,6 +4701,19 @@ function reorderSidebarPty(sourcePtyId: string, targetPtyId: string, placement: 
   renderList();
 }
 
+function togglePrWaitingForReview(ptyId: string): void {
+  const summary = ptys.find((p) => p.id === ptyId);
+  if (!summary?.pr) return;
+
+  if (prWaitingForReviewPtys.has(ptyId)) {
+    prWaitingForReviewPtys.delete(ptyId);
+  } else {
+    prWaitingForReviewPtys.add(ptyId);
+  }
+  savePrWaitingForReviewPtys();
+  renderList();
+}
+
 function renderList(): void {
   // Group running PTYs by CWD (normalize .worktrees/ paths to parent repo).
   pruneSidebarPtyOrder();
@@ -4844,6 +4903,9 @@ function renderList(): void {
     onSelectPty: (ptyId) => setActive(ptyId),
     onReorderPty: (sourcePtyId, targetPtyId, placement) => {
       reorderSidebarPty(sourcePtyId, targetPtyId, placement);
+    },
+    onTogglePrWaitingForReview: (ptyId) => {
+      togglePrWaitingForReview(ptyId);
     },
     onRenamePty: (ptyId) => {
       void renamePty(ptyId);

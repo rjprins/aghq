@@ -22,7 +22,7 @@ export type RunningPtyItem = {
   readyUnviewed: boolean;
   prMarker?: "new" | "seen";
   prUnresolved?: number;
-  prUrl?: string;
+  prWaitingForReview?: boolean;
   readyState: ReadyState;
   readyIndicator: ReadyIndicator;
   readyReason: string;
@@ -111,6 +111,7 @@ export type PtyListHandlers = {
   onOpenLaunchInWorktree: (groupKey: string, worktreePath: string) => void;
   onSelectPty: (ptyId: string) => void;
   onReorderPty: (sourcePtyId: string, targetPtyId: string, placement: PtyDragPlacement) => void;
+  onTogglePrWaitingForReview: (ptyId: string) => void;
   onRenamePty: (ptyId: string) => void;
   onKillPty: (ptyId: string) => void;
   onResumeInactive: (ptyId: string) => void;
@@ -378,18 +379,26 @@ function PtyItemRow(
               {"\ud83d\udd89"}
             </button>
             {item.prMarker ? (
-              <a
-                className={`pr-comment-badge ${item.prMarker}`}
-                href={item.prUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                title={item.prMarker === "new"
-                  ? `${item.prUnresolved ?? 0} unresolved PR comment(s) \u2014 new \u2014 click to open PR`
-                  : `Open PR (${item.prUnresolved ?? 0} unresolved)`}
-                onClick={(ev) => ev.stopPropagation()}
+              <button
+                type="button"
+                className={`pr-comment-badge ${item.prMarker}${item.prWaitingForReview ? " waiting-review" : ""}`}
+                title={item.prWaitingForReview
+                  ? `Waiting for PR review/approval (${item.prUnresolved ?? 0} unresolved) - click to mark as work in progress`
+                  : item.prMarker === "new"
+                  ? `${item.prUnresolved ?? 0} unresolved PR comment(s) - new - click to mark waiting for review`
+                  : `Mark as waiting for PR review (${item.prUnresolved ?? 0} unresolved)`}
+                aria-label={item.prWaitingForReview
+                  ? `PR is waiting for review or approval for ${item.name}`
+                  : `Mark PR as waiting for review for ${item.name}`}
+                aria-pressed={item.prWaitingForReview ? "true" : "false"}
+                onClick={(ev) => {
+                  ev.preventDefault();
+                  ev.stopPropagation();
+                  handlers.onTogglePrWaitingForReview(item.id);
+                }}
               >
                 PR
-              </a>
+              </button>
             ) : null}
           </div>
           {(item.process || item.worktree || item.secondaryText || item.title) ? (
