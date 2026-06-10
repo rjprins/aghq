@@ -29,6 +29,10 @@ export type WorktreeSummary = {
   branch: string;
 };
 
+export type BranchSummary = {
+  name: string;
+};
+
 export function createWorktreeService(deps: WorktreeServiceDeps) {
   const { repoRoot, store, defaultBaseBranch } = deps;
 
@@ -172,6 +176,38 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
     return "main";
   }
 
+  async function listBranches(projectRoot: string | null): Promise<BranchSummary[]> {
+    const cwd = projectRoot ?? repoRoot;
+    const output = await new Promise<string>((resolve, reject) => {
+      execFile(
+        "git",
+        [
+          "for-each-ref",
+          "refs/heads/",
+          "refs/remotes/",
+          "--sort=-committerdate",
+          "--format=%(refname)%09%(refname:short)",
+        ],
+        { cwd },
+        (err, stdout) => {
+          if (err) reject(err);
+          else resolve(stdout);
+        },
+      );
+    });
+    const seen = new Set<string>();
+    const branches: BranchSummary[] = [];
+    for (const line of output.split("\n")) {
+      const [fullRef, shortRef] = line.split("\t");
+      const name = shortRef?.trim() ?? "";
+      if (!name || seen.has(name) || fullRef?.trim().endsWith("/HEAD")) continue;
+      if (!isBranchFormatLikelySafe(name)) continue;
+      seen.add(name);
+      branches.push({ name });
+    }
+    return branches;
+  }
+
   async function createWorktreeFromHead(branch: string, templateRoot?: string): Promise<string> {
     if (!isBranchFormatLikelySafe(branch) || !(await gitBranchNameValid(branch, repoRoot))) {
       throw new Error("invalid branch name");
@@ -282,6 +318,7 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
 
   return {
     listWorktrees,
+    listBranches,
     worktreeStatus,
     defaultBranch,
     resolveProjectRoot,

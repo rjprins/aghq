@@ -336,6 +336,22 @@ Success:
 { "branch": "main" }
 ```
 
+### `GET /api/branches[?projectRoot=<path>]`
+
+Returns branch choices for launch-dialog base branch selection.
+
+Success:
+
+```json
+{
+  "defaultBranch": "main",
+  "branches": [
+    { "name": "main" },
+    { "name": "develop" }
+  ]
+}
+```
+
 ### `GET /api/worktrees/status?path=<worktreePath>`
 
 Success:

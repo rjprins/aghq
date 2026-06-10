@@ -481,6 +481,50 @@ describe("listWorktrees: main worktree should be selectable", () => {
   });
 });
 
+describe("listBranches: base branch choices", () => {
+  let cleanup: (() => Promise<void>) | undefined;
+
+  beforeEach(() => {
+    _resetCacheForTesting();
+  });
+
+  afterEach(async () => {
+    _resetCacheForTesting();
+    await cleanup?.();
+    cleanup = undefined;
+  });
+
+  test("returns available local branches for the launch dialog base branch dropdown", async () => {
+    const repo = await createTempRepo("main");
+    cleanup = repo.cleanup;
+    execFileSync("git", ["checkout", "-b", "develop"], { cwd: repo.repoRoot, stdio: "pipe" });
+    execFileSync("git", ["checkout", "main"], { cwd: repo.repoRoot, stdio: "pipe" });
+
+    const svc = makeService(repo.repoRoot);
+    const branches = await svc.listBranches(repo.repoRoot);
+    const names = branches.map((branch) => branch.name);
+
+    expect(names).toContain("main");
+    expect(names).toContain("develop");
+  });
+
+  test("omits symbolic remote HEAD aliases from branch choices", async () => {
+    const repo = await createTempRepo("main");
+    cleanup = repo.cleanup;
+    execFileSync(
+      "git",
+      ["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"],
+      { cwd: repo.repoRoot, stdio: "pipe" },
+    );
+
+    const svc = makeService(repo.repoRoot);
+    const branches = await svc.listBranches(repo.repoRoot);
+
+    expect(branches.some((branch) => branch.name.endsWith("/HEAD"))).toBe(false);
+    expect(branches.some((branch) => branch.name === "origin")).toBe(false);
+  });
+});
+
 describe("generic worktree resolution", () => {
   let cleanup: (() => Promise<void>) | undefined;
 

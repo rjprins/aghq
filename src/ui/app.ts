@@ -2062,6 +2062,7 @@ type LaunchModalState = {
   customWorktreeTouched: boolean;
   branchValue: string;
   baseBranchValue: string;
+  baseBranchOptions: WorktreeOption[];
   generatedBranch: string;
   launching: boolean;
   savedFlags: Record<string, Record<string, string | boolean>>;
@@ -2104,6 +2105,32 @@ function buildWorktreeOptions(
     }
   }
   return options;
+}
+
+function buildBranchOptions(
+  branches?: Array<{ name: string }>,
+  preferredBranch?: string,
+): WorktreeOption[] {
+  const names = new Set<string>();
+  const options: WorktreeOption[] = [];
+  const addBranch = (name: unknown) => {
+    if (typeof name !== "string") return;
+    const trimmed = name.trim();
+    if (!trimmed || names.has(trimmed)) return;
+    names.add(trimmed);
+    options.push({ value: trimmed, label: trimmed });
+  };
+  addBranch(preferredBranch);
+  if (Array.isArray(branches)) {
+    for (const branch of branches) addBranch(branch?.name);
+  }
+  return options;
+}
+
+function syncBaseBranchSelection(state: LaunchModalState): void {
+  if (state.baseBranchOptions.length === 0) return;
+  if (state.baseBranchOptions.some((branch) => branch.value === state.baseBranchValue)) return;
+  state.baseBranchValue = state.baseBranchOptions[0]?.value ?? state.baseBranchValue;
 }
 
 function syncLaunchWorktreeSelection(
@@ -2193,6 +2220,7 @@ function renderLaunchModalState(): void {
       branchValue: state.branchValue,
       branchPlaceholder: state.generatedBranch,
       baseBranchValue: state.baseBranchValue,
+      baseBranchOptions: state.baseBranchOptions,
       launching: state.launching,
       projectName: effectiveRoot ? effectiveRoot.split("/").pop() : undefined,
     }
@@ -2265,7 +2293,7 @@ function renderLaunchModalState(): void {
         ? (stateNow.branchValue.trim() || stateNow.generatedBranch)
         : undefined;
       const baseBranch = stateNow.selectedWorktree === "__new__"
-        ? (stateNow.baseBranchValue.trim() || "main")
+        ? (stateNow.baseBranchValue.trim() || stateNow.baseBranchOptions[0]?.value || "main")
         : undefined;
       const flags = stateNow.savedFlags[stateNow.selectedAgent] ?? {};
       const effectiveProjectRoot = getEffectiveProjectRoot(stateNow);
@@ -2317,19 +2345,34 @@ function renderLaunchModalState(): void {
 function refreshLaunchModalForDirectory(dir: string): void {
   const seq = launchModalSeq;
 
-  const branchUrl = dir
-    ? `/api/default-branch?projectRoot=${encodeURIComponent(dir)}`
-    : "/api/default-branch";
-  void authFetch(branchUrl)
+  const branchesUrl = dir
+    ? `/api/branches?projectRoot=${encodeURIComponent(dir)}`
+    : "/api/branches";
+  void authFetch(branchesUrl)
     .then(async (r) => (r.ok ? r.json() : Promise.reject(new Error(await readApiError(r)))))
-    .then((data: { branch?: string }) => {
+    .then((data: { branches?: Array<{ name: string }>; defaultBranch?: string }) => {
       if (seq !== launchModalSeq || !launchModalState) return;
-      if (data.branch) {
-        launchModalState.baseBranchValue = data.branch;
-        renderLaunchModalState();
-      }
+      launchModalState.baseBranchOptions = buildBranchOptions(data.branches, data.defaultBranch);
+      if (data.defaultBranch) launchModalState.baseBranchValue = data.defaultBranch;
+      syncBaseBranchSelection(launchModalState);
+      renderLaunchModalState();
     })
-    .catch(() => {});
+    .catch(() => {
+      const branchUrl = dir
+        ? `/api/default-branch?projectRoot=${encodeURIComponent(dir)}`
+        : "/api/default-branch";
+      void authFetch(branchUrl)
+        .then(async (r) => (r.ok ? r.json() : Promise.reject(new Error(await readApiError(r)))))
+        .then((data: { branch?: string }) => {
+          if (seq !== launchModalSeq || !launchModalState) return;
+          launchModalState.baseBranchOptions = [];
+          if (data.branch) {
+            launchModalState.baseBranchValue = data.branch;
+            renderLaunchModalState();
+          }
+        })
+        .catch(() => {});
+    });
 
   const wtUrl = dir
     ? `/api/worktrees?projectRoot=${encodeURIComponent(dir)}`
@@ -2368,6 +2411,7 @@ function openLaunchModal(groupCwd: string, preselectedWorktree?: string): void {
     customWorktreeTouched: false,
     branchValue: "",
     baseBranchValue: "",
+    baseBranchOptions: [],
     generatedBranch: generateBranchName(),
     launching: false,
     savedFlags: {},

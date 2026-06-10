@@ -27,6 +27,7 @@ export type LaunchModalViewModel = {
   branchValue: string;
   branchPlaceholder: string;
   baseBranchValue: string;
+  baseBranchOptions: { value: string; label: string }[];
   launching: boolean;
   projectName?: string;
 };
@@ -175,13 +176,27 @@ export function renderLaunchModal(
 
         <label className={`launch-modal-label launch-modal-branch${showBranchInput ? "" : " hidden"}`}>
           Base branch
-          <input
-            type="text"
-            className="launch-modal-input"
-            value={model.baseBranchValue}
-            placeholder="main"
-            onInput={(ev) => handlers.onBaseBranchChange((ev.currentTarget as HTMLInputElement).value)}
-          />
+          {model.baseBranchOptions.length > 0
+            ? (
+              <select
+                className="launch-modal-select"
+                value={model.baseBranchValue}
+                onChange={(ev) => handlers.onBaseBranchChange((ev.currentTarget as HTMLSelectElement).value)}
+              >
+                {model.baseBranchOptions.map((branch) => (
+                  <option key={branch.value} value={branch.value}>{branch.label}</option>
+                ))}
+              </select>
+            )
+            : (
+              <input
+                type="text"
+                className="launch-modal-input"
+                value={model.baseBranchValue}
+                placeholder="main"
+                onInput={(ev) => handlers.onBaseBranchChange((ev.currentTarget as HTMLInputElement).value)}
+              />
+            )}
         </label>
 
         <div className="launch-modal-buttons">

@@ -8,6 +8,7 @@ type WorktreeRoutesDeps = {
       worktrees: Array<{ name: string; path: string; branch: string }>;
       repoRoot: string;
     };
+    listBranches: (projectRoot: string | null) => Promise<Array<{ name: string }>>;
     defaultBranch: (projectRoot: string | null) => Promise<string>;
     resolveProjectRoot: (raw: unknown) => Promise<string | null>;
     worktreeStatus: (path: string) => Promise<{ dirty: boolean; branch: string; changes: string[] }>;
@@ -52,6 +53,21 @@ export function registerWorktreeRoutes(deps: WorktreeRoutesDeps): void {
     }
     const branch = await worktrees.defaultBranch(projectRoot);
     return { branch };
+  });
+
+  fastify.get("/api/branches", async (req, reply) => {
+    const q = req.query as Record<string, unknown>;
+    const rawProjectRoot = typeof q.projectRoot === "string" ? q.projectRoot.trim() : "";
+    const projectRoot = await worktrees.resolveProjectRoot(q.projectRoot);
+    if (rawProjectRoot && !projectRoot) {
+      reply.code(400);
+      return { error: `project directory is not a git repository: ${rawProjectRoot}` };
+    }
+    const [branches, defaultBranch] = await Promise.all([
+      worktrees.listBranches(projectRoot),
+      worktrees.defaultBranch(projectRoot),
+    ]);
+    return { branches, defaultBranch };
   });
 
   fastify.get("/api/worktrees/status", async (req, reply) => {

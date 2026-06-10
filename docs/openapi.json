@@ -96,6 +96,23 @@
         }
       }
     },
+    "/api/branches": {
+      "get": {
+        "summary": "List branches for launch base branch selection",
+        "parameters": [
+          {
+            "name": "projectRoot",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": { "description": "OK" },
+          "400": { "description": "Bad request" }
+        }
+      }
+    },
     "/api/default-branch": {
       "get": {
         "summary": "Resolve default branch",

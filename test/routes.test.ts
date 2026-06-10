@@ -315,6 +315,7 @@ describe("route wiring", () => {
     const fastify = Fastify();
     const worktrees = {
       listWorktrees: () => ({ worktrees: [{ name: "wt", path: "/tmp/wt", branch: "wt" }], repoRoot: "/tmp" }),
+      listBranches: async () => [{ name: "main" }],
       defaultBranch: async () => "main",
       resolveProjectRoot: async () => null,
       worktreeStatus: async () => ({ dirty: false, branch: "wt" }),
@@ -341,6 +342,7 @@ describe("route wiring", () => {
         calls.push(projectRoot);
         return { worktrees: [{ name: "wt", path: projectRoot ?? "/tmp/wt", branch: "wt" }], repoRoot: projectRoot ?? "/tmp" };
       },
+      listBranches: async () => [{ name: "main" }],
       defaultBranch: async () => "main",
       resolveProjectRoot: async (raw: unknown) => typeof raw === "string" ? `/resolved${raw}` : null,
       worktreeStatus: async () => ({ dirty: false, branch: "wt" }),
@@ -361,6 +363,7 @@ describe("route wiring", () => {
     const fastify = Fastify();
     const worktrees = {
       listWorktrees: () => ({ worktrees: [{ name: "wt", path: "/tmp/wt", branch: "wt" }], repoRoot: "/tmp" }),
+      listBranches: async () => [{ name: "main" }],
       defaultBranch: async () => "main",
       resolveProjectRoot: async () => null,
       worktreeStatus: async () => ({ dirty: false, branch: "wt" }),
@@ -381,6 +384,7 @@ describe("route wiring", () => {
     const fastify = Fastify();
     const worktrees = {
       listWorktrees: () => ({ worktrees: [{ name: "wt", path: "/tmp/wt", branch: "wt" }], repoRoot: "/tmp" }),
+      listBranches: async () => [{ name: "main" }],
       defaultBranch: async () => "main",
       resolveProjectRoot: async () => null,
       worktreeStatus: async () => ({ dirty: false, branch: "wt" }),
@@ -392,6 +396,56 @@ describe("route wiring", () => {
     registerWorktreeRoutes({ fastify, worktrees });
 
     const res = await fastify.inject({ method: "GET", url: "/api/default-branch?projectRoot=/not-a-repo" });
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toEqual({ error: "project directory is not a git repository: /not-a-repo" });
+    await fastify.close();
+  });
+
+  it("serves /api/branches with available branches and default branch", async () => {
+    const fastify = Fastify();
+    const calls: Array<string | null | undefined> = [];
+    const worktrees = {
+      listWorktrees: () => ({ worktrees: [{ name: "wt", path: "/tmp/wt", branch: "wt" }], repoRoot: "/tmp" }),
+      listBranches: async (projectRoot: string | null) => {
+        calls.push(projectRoot);
+        return [{ name: "main" }, { name: "develop" }];
+      },
+      defaultBranch: async () => "main",
+      resolveProjectRoot: async (raw: unknown) => typeof raw === "string" ? `/resolved${raw}` : null,
+      worktreeStatus: async () => ({ dirty: false, branch: "wt" }),
+      removeWorktree: async () => {},
+      directoryExists: async () => true,
+      isKnownWorktreePath: () => true,
+    } as any;
+
+    registerWorktreeRoutes({ fastify, worktrees });
+
+    const res = await fastify.inject({ method: "GET", url: "/api/branches?projectRoot=/repo" });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({
+      branches: [{ name: "main" }, { name: "develop" }],
+      defaultBranch: "main",
+    });
+    expect(calls).toEqual(["/resolved/repo"]);
+    await fastify.close();
+  });
+
+  it("rejects invalid projectRoot on /api/branches instead of falling back", async () => {
+    const fastify = Fastify();
+    const worktrees = {
+      listWorktrees: () => ({ worktrees: [{ name: "wt", path: "/tmp/wt", branch: "wt" }], repoRoot: "/tmp" }),
+      listBranches: async () => [{ name: "main" }],
+      defaultBranch: async () => "main",
+      resolveProjectRoot: async () => null,
+      worktreeStatus: async () => ({ dirty: false, branch: "wt" }),
+      removeWorktree: async () => {},
+      directoryExists: async () => true,
+      isKnownWorktreePath: () => true,
+    } as any;
+
+    registerWorktreeRoutes({ fastify, worktrees });
+
+    const res = await fastify.inject({ method: "GET", url: "/api/branches?projectRoot=/not-a-repo" });
     expect(res.statusCode).toBe(400);
     expect(res.json()).toEqual({ error: "project directory is not a git repository: /not-a-repo" });
     await fastify.close();
