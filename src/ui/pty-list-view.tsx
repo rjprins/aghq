@@ -22,6 +22,8 @@ export type RunningPtyItem = {
   readyUnviewed: boolean;
   prMarker?: "new" | "seen";
   prUnresolved?: number;
+  prApproved?: boolean;
+  prApprovalCount?: number;
   prWaitingForReview?: boolean;
   readyState: ReadyState;
   readyIndicator: ReadyIndicator;
@@ -381,13 +383,17 @@ function PtyItemRow(
             {item.prMarker ? (
               <button
                 type="button"
-                className={`pr-comment-badge ${item.prMarker}${item.prWaitingForReview ? " waiting-review" : ""}`}
-                title={item.prWaitingForReview
+                className={`pr-comment-badge ${item.prMarker}${item.prWaitingForReview ? " waiting-review" : ""}${item.prApproved ? " approved" : ""}`}
+                title={item.prApproved
+                  ? `PR approved by ${item.prApprovalCount ?? 1} reviewer(s) - click to mark waiting for review`
+                  : item.prWaitingForReview
                   ? `Waiting for PR review/approval (${item.prUnresolved ?? 0} unresolved) - click to mark as work in progress`
                   : item.prMarker === "new"
                   ? `${item.prUnresolved ?? 0} unresolved PR comment(s) - new - click to mark waiting for review`
                   : `Mark as waiting for PR review (${item.prUnresolved ?? 0} unresolved)`}
-                aria-label={item.prWaitingForReview
+                aria-label={item.prApproved
+                  ? `PR approved by ${item.prApprovalCount ?? 1} reviewer(s) for ${item.name}`
+                  : item.prWaitingForReview
                   ? `PR is waiting for review or approval for ${item.name}`
                   : `Mark PR as waiting for review for ${item.name}`}
                 aria-pressed={item.prWaitingForReview ? "true" : "false"}

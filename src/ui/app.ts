@@ -3922,6 +3922,7 @@ function buildRunningPtyItem(p: PtySummary): RunningPtyItem {
   const changedAt = ptyStateChangedAt.get(p.id);
   const elapsed = changedAt && readyInfo.state !== "unknown" ? formatElapsedTime(changedAt) : "";
   const secondaryText = inputPreview ? `> ${inputPreview}` : "";
+  const prApprovalCount = p.pr?.votes.filter((v) => v.vote === "approved" || v.vote === "approvedWithSuggestions").length ?? 0;
 
   return {
     id: p.id,
@@ -3930,6 +3931,8 @@ function buildRunningPtyItem(p: PtySummary): RunningPtyItem {
     readyUnviewed: unviewedReadyPtys.has(p.id) && p.id !== activePtyId,
     prMarker: p.pr ? (p.pr.hasNewComments && p.id !== activePtyId ? "new" : "seen") : undefined,
     prUnresolved: p.pr?.unresolvedCount,
+    prApproved: prApprovalCount > 0,
+    prApprovalCount,
     prWaitingForReview: p.pr ? prWaitingForReviewPtys.has(p.id) : undefined,
     readyState: readyInfo.state,
     readyIndicator: readyInfo.indicator,
