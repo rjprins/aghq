@@ -16,7 +16,15 @@ describe("emacs branch-review integration", () => {
 
     expect(form).toContain("(require 'branch-review nil t)");
     expect(form).toContain('(file-name-as-directory "/tmp/project feature")');
+    // No base resolved -> plain branch-review (auto-detect), not a base prompt.
     expect(form).toContain("(call-interactively 'branch-review)");
+    expect(form).not.toContain("branch-review-with-base");
+    // Reuse an existing GUI frame via display-graphic-p (the `window-system`
+    // frame parameter is unset on GUI frames), else create one.
+    expect(form).toContain("(filtered-frame-list #'display-graphic-p)");
+    expect(form).not.toContain("'window-system");
+    expect(form).toContain("make-frame-on-display");
+    expect(form).toContain("(select-frame frame)");
     expect(form).toContain("(make-frame-visible frame)");
     expect(form).toContain("(raise-frame frame)");
     expect(form).toContain("(select-frame-set-input-focus frame)");
@@ -26,9 +34,9 @@ describe("emacs branch-review integration", () => {
     const form = buildBranchReviewEval("/tmp/project feature", "origin/develop");
 
     expect(form).toContain('(let ((agmux-branch-review-base "origin/develop"))');
-    expect(form).toContain("branch-review-base-branch-fallbacks");
-    expect(form).toContain("branch-review-session-base");
-    expect(form).toContain("(call-interactively 'branch-review)");
+    expect(form).toContain("(symbol-function 'magit-read-branch-or-commit)");
+    expect(form).toContain("(call-interactively 'branch-review-with-base)");
+    expect(form).not.toContain("branch-review-base-branch-fallbacks");
   });
 
   test("builds a Magit status eval form with the worktree as default-directory", () => {
@@ -37,6 +45,8 @@ describe("emacs branch-review integration", () => {
     expect(form).toContain("(require 'magit nil t)");
     expect(form).toContain('(file-name-as-directory "/tmp/project feature")');
     expect(form).toContain("(call-interactively 'magit-status)");
+    expect(form).toContain("(filtered-frame-list #'display-graphic-p)");
+    expect(form).toContain("(select-frame frame)");
     expect(form).toContain("(make-frame-visible frame)");
     expect(form).toContain("(raise-frame frame)");
     expect(form).toContain("(select-frame-set-input-focus frame)");
@@ -75,6 +85,24 @@ describe("emacs branch-review integration", () => {
       ["config", "--get", "branch.feature/review.vscode-merge-base"],
       ["rev-parse", "--verify", "--quiet", "origin/develop^{commit}"],
     ]);
+  });
+
+  test("resolves branch-review base branch for slash-delimited worktree branches", async () => {
+    const execFileText: ExecFileText = async (file, args) => {
+      if (file !== "git") throw new Error(`unexpected command: ${file}`);
+      if (args.join(" ") === "branch --show-current") return { stdout: "feat/flex-app-04-auth\n", stderr: "" };
+      if (args.join(" ") === "config --get branch.feat/flex-app-04-auth.vscode-merge-base") {
+        return { stdout: "origin/feat/flex-app-03-api\n", stderr: "" };
+      }
+      if (args.join(" ") === "rev-parse --verify --quiet origin/feat/flex-app-03-api^{commit}") {
+        return { stdout: "abc123\n", stderr: "" };
+      }
+      throw new Error(`unexpected git command: ${args.join(" ")}`);
+    };
+
+    await expect(resolveBranchReviewBaseBranch("/home/rutger/flex/flex-app-04-auth", execFileText)).resolves.toBe(
+      "origin/feat/flex-app-03-api",
+    );
   });
 
   test("resolves branch-review base branch from the latest rebase target", async () => {
@@ -129,12 +157,14 @@ describe("emacs branch-review integration", () => {
       path: "/repo/worktree",
     });
     const emacsCall = calls.find((call) => call.file === "emacsclient");
-    expect(emacsCall?.args[0]).toBe("-n");
-    expect(emacsCall?.args[1]).toBe("--reuse-frame");
-    expect(emacsCall?.args[2]).toBe("--eval");
-    expect(emacsCall?.args[3]).toContain("/repo/worktree");
-    expect(emacsCall?.args[3]).toContain("origin/develop");
-    expect(emacsCall?.args[3]).toContain("select-frame-set-input-focus");
+    // -a "" auto-starts a daemon when no server is reachable. No --reuse-frame:
+    // it makes emacsclient create a frame, which fails without DISPLAY.
+    expect(emacsCall?.args.slice(0, 4)).toEqual(["-n", "-a", "", "--eval"]);
+    const form = emacsCall?.args[4] ?? "";
+    expect(form).toContain("/repo/worktree");
+    expect(form).toContain("origin/develop");
+    expect(form).toContain("branch-review-with-base");
+    expect(form).toContain("select-frame-set-input-focus");
   });
 
   test("opens Magit through emacsclient", async () => {
@@ -149,11 +179,10 @@ describe("emacs branch-review integration", () => {
       path: "/repo/worktree",
     });
     expect(calls[1]?.file).toBe("emacsclient");
-    expect(calls[1]?.args[0]).toBe("-n");
-    expect(calls[1]?.args[1]).toBe("--reuse-frame");
-    expect(calls[1]?.args[2]).toBe("--eval");
-    expect(calls[1]?.args[3]).toContain("/repo/worktree");
-    expect(calls[1]?.args[3]).toContain("magit-status");
-    expect(calls[1]?.args[3]).toContain("select-frame-set-input-focus");
+    expect(calls[1]?.args.slice(0, 4)).toEqual(["-n", "-a", "", "--eval"]);
+    const magitForm = calls[1]?.args[4] ?? "";
+    expect(magitForm).toContain("/repo/worktree");
+    expect(magitForm).toContain("magit-status");
+    expect(magitForm).toContain("select-frame-set-input-focus");
   });
 });
