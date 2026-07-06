@@ -8,6 +8,8 @@ Built for managing [Claude Code](https://docs.anthropic.com/en/docs/claude-code)
   <img src="docs/screenshot.png" alt="agmux web UI" width="820">
 </p>
 
+> **Note: this is a personal software development tool.** agmux is shaped around one developer's workflow, so it carries specific functional idiosyncrasies and rough edges, and comes with no promise of stability or support. That said, the core model — a browser terminal (xterm.js) over tmux-backed PTYs for managing coding agents — is solid, and others may find it useful to fork and tweak.
+
 ## Features
 
 - **Live terminal dashboard** — stream tmux-backed PTYs over WebSockets, switch sessions quickly, rename/kill sessions, and keep shells alive across server restarts.

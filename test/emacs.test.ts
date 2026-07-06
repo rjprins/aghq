@@ -90,31 +90,31 @@ describe("emacs branch-review integration", () => {
   test("resolves branch-review base branch for slash-delimited worktree branches", async () => {
     const execFileText: ExecFileText = async (file, args) => {
       if (file !== "git") throw new Error(`unexpected command: ${file}`);
-      if (args.join(" ") === "branch --show-current") return { stdout: "feat/flex-app-04-auth\n", stderr: "" };
-      if (args.join(" ") === "config --get branch.feat/flex-app-04-auth.vscode-merge-base") {
-        return { stdout: "origin/feat/flex-app-03-api\n", stderr: "" };
+      if (args.join(" ") === "branch --show-current") return { stdout: "feat/sample-app-04-auth\n", stderr: "" };
+      if (args.join(" ") === "config --get branch.feat/sample-app-04-auth.vscode-merge-base") {
+        return { stdout: "origin/feat/sample-app-03-api\n", stderr: "" };
       }
-      if (args.join(" ") === "rev-parse --verify --quiet origin/feat/flex-app-03-api^{commit}") {
+      if (args.join(" ") === "rev-parse --verify --quiet origin/feat/sample-app-03-api^{commit}") {
         return { stdout: "abc123\n", stderr: "" };
       }
       throw new Error(`unexpected git command: ${args.join(" ")}`);
     };
 
-    await expect(resolveBranchReviewBaseBranch("/home/rutger/flex/flex-app-04-auth", execFileText)).resolves.toBe(
-      "origin/feat/flex-app-03-api",
+    await expect(resolveBranchReviewBaseBranch("/home/user/sample/sample-app-04-auth", execFileText)).resolves.toBe(
+      "origin/feat/sample-app-03-api",
     );
   });
 
   test("resolves branch-review base branch from the latest rebase target", async () => {
     const execFileText: ExecFileText = async (file, args) => {
       if (file !== "git") throw new Error(`unexpected command: ${file}`);
-      if (args.join(" ") === "branch --show-current") return { stdout: "feat/flex-app-02-db\n", stderr: "" };
+      if (args.join(" ") === "branch --show-current") return { stdout: "feat/sample-app-02-db\n", stderr: "" };
       if (args[0] === "config") throw new Error("no explicit branch base config");
-      if (args.join(" ") === "reflog show --format=%gs feat/flex-app-02-db") {
+      if (args.join(" ") === "reflog show --format=%gs feat/sample-app-02-db") {
         return {
           stdout: [
-            "commit (amend): Flex App: database layer",
-            "rebase (finish): refs/heads/feat/flex-app-02-db onto 5df06c1043ab59aed0a830ae9ee12bff14cbd581",
+            "commit (amend): database layer",
+            "rebase (finish): refs/heads/feat/sample-app-02-db onto 5df06c1043ab59aed0a830ae9ee12bff14cbd581",
             "commit: older work",
           ].join("\n"),
           stderr: "",
@@ -127,13 +127,13 @@ describe("emacs branch-review integration", () => {
         args.join(" ") ===
         "for-each-ref --points-at 5df06c1043ab59aed0a830ae9ee12bff14cbd581 --format=%(refname:short) refs/heads refs/remotes"
       ) {
-        return { stdout: "origin/feat/flex-app-01-frontend\nfeat/flex-app-01-frontend\n", stderr: "" };
+        return { stdout: "origin/feat/sample-app-01-frontend\nfeat/sample-app-01-frontend\n", stderr: "" };
       }
       throw new Error(`unexpected git command: ${args.join(" ")}`);
     };
 
     await expect(resolveBranchReviewBaseBranch("/repo/worktree", execFileText)).resolves.toBe(
-      "feat/flex-app-01-frontend",
+      "feat/sample-app-01-frontend",
     );
   });
 
