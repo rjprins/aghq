@@ -390,7 +390,8 @@ function loadSavedActivePty(): { ptyId: string; tmuxSession: string | null; tmux
 
 type HistoryEntry = {
   text: string;
-  bufferLine: number;
+  /** Epoch ms of the submit; 0 when unknown. Used server-side to find the pane line. */
+  ts: number;
 };
 
 type InputHistoryRecord = {
@@ -466,7 +467,7 @@ function applyInputMeta(data: Record<string, InputHistoryRecord>, overwrite: boo
     if (Array.isArray(meta.history)) {
       const entries: HistoryEntry[] = meta.history
         .filter((x) => x && typeof x.text === "string" && x.text.trim().length > 0)
-        .map((x) => ({ text: x.text, bufferLine: typeof x.bufferLine === "number" ? x.bufferLine : 0 }));
+        .map((x) => ({ text: x.text, ts: typeof x.ts === "number" ? x.ts : 0 }));
       if (entries.length > 0 && (overwrite || !ptyInputHistory.has(ptyId))) {
         ptyInputHistory.set(ptyId, entries.slice(-MAX_INPUT_HISTORY));
       }
@@ -2651,11 +2652,11 @@ function truncateText(s: string, max = 68): string {
   return `${s.slice(0, Math.max(1, max - 3))}...`;
 }
 
-function appendPtyInputHistory(ptyId: string, input: string, bufferLine: number): void {
+function appendPtyInputHistory(ptyId: string, input: string, ts: number): void {
   const text = truncateText(input, 220);
   const prev = ptyInputHistory.get(ptyId) ?? [];
   if (prev.length > 0 && prev[prev.length - 1].text === text) return;
-  const next = [...prev, { text, bufferLine }];
+  const next = [...prev, { text, ts }];
   if (next.length > MAX_INPUT_HISTORY) next.splice(0, next.length - MAX_INPUT_HISTORY);
   ptyInputHistory.set(ptyId, next);
 }
@@ -2721,12 +2722,15 @@ async function loadProviderHistoryForPty(ptyId: string, force = false): Promise<
       }
       return;
     }
-    const json = (await res.json()) as { messages?: Array<{ role?: string; text?: string }> };
+    const json = (await res.json()) as { messages?: Array<{ role?: string; text?: string; ts?: number | null }> };
     if (ptyProviderHistoryKeys.get(ptyId) !== key) return;
     const messages = Array.isArray(json.messages) ? json.messages : [];
     const history = messages
       .filter((message) => message?.role === "user" && typeof message.text === "string" && message.text.trim().length > 0)
-      .map((message) => ({ text: truncateText(message.text!.trim(), 220), bufferLine: 0 }))
+      .map((message) => ({
+        text: truncateText(message.text!.trim(), 220),
+        ts: typeof message.ts === "number" && message.ts > 0 ? message.ts : 0,
+      }))
       .slice(-MAX_INPUT_HISTORY);
     ptyProviderInputHistory.set(ptyId, history);
   } catch {
@@ -2823,19 +2827,13 @@ function renderInputContextBar(): void {
     li.textContent = ptyProviderHistoryLoading.has(activePtyId) ? "Loading session history..." : "No inputs yet";
     inputHistoryListEl.appendChild(li);
   } else {
-    // Only local shell-input entries can scroll the terminal to where they
-    // ran; provider (agent JSONL) history has no reliable place in the pane.
-    const scrollable = providerHistory.length === 0;
     for (let i = 0; i < history.length; i++) {
       const entry = history[i];
       const li = document.createElement("li");
       li.textContent = entry.text;
-      li.title = entry.text;
-      if (scrollable) {
-        li.classList.add("clickable");
-        li.title = `${entry.text}\n(click to scroll the terminal here)`;
-        li.onclick = () => scrollActiveTerminalToHistory(entry.text);
-      }
+      li.classList.add("clickable");
+      li.title = `${entry.text}\n(click to scroll the terminal here)`;
+      li.onclick = () => scrollActiveTerminalToHistory(entry);
       inputHistoryListEl.appendChild(li);
     }
   }
@@ -3055,17 +3053,14 @@ function trackUserInput(ptyId: string, data: string): void {
     .replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, "")
     .replace(/\x1b./g, "");
 
-  const st = terms.get(ptyId);
-  const buf = st?.term.buffer.active;
   let line = ptyInputLineBuffers.get(ptyId) ?? "";
   let changed = false;
   for (const ch of cleaned) {
     if (ch === "\r" || ch === "\n") {
       const normalized = compactWhitespace(line);
       if (normalized) {
-        const bufferLine = buf ? buf.baseY + buf.cursorY : 0;
         ptyLastInput.set(ptyId, truncateText(normalized));
-        appendPtyInputHistory(ptyId, normalized, bufferLine);
+        appendPtyInputHistory(ptyId, normalized, Date.now());
         maybeUpdateClientCwdFromCommand(ptyId, normalized);
         const proc = inferProcessFromInput(normalized);
         if (proc) ptyInputProcessHints.set(ptyId, proc);
@@ -5201,29 +5196,18 @@ function scrollActiveTerminalToBottom(): void {
   if (mobileViewport) scheduleMobileRender();
 }
 
-// Terminal scrollback lives in tmux, not the local xterm buffer, so scrolling
-// to a past command means driving tmux copy-mode to search backward for it
-// (same channel as wheel scrolling). Best-effort: a no-op if the text has
-// scrolled out of tmux history or no longer matches.
-function scrollActiveTerminalToHistory(text: string): void {
+// Terminal scrollback lives in tmux, not the local xterm buffer. The server
+// resolves the entry to a pane line — submit-time anchors matched by ts,
+// refined by locating the prompt echo — and drives tmux copy-mode there.
+// Best-effort: a no-op if the text has scrolled out of tmux history.
+function scrollActiveTerminalToHistory(entry: HistoryEntry): void {
   if (!activePtyId) return;
-  const query = historySearchQuery(text);
-  if (!query) return;
-  sendWsMessage({ type: "tmux_search", ptyId: activePtyId, direction: "backward", query });
-}
-
-// Reduce a stored history entry to a literal string tmux copy-mode can find:
-// drop the truncation ellipsis and cap the length so long, wrapped commands
-// still match on their leading portion.
-function historySearchQuery(text: string): string {
-  let q = text.trim();
-  if (q.endsWith("...")) q = q.slice(0, -3).trim();
-  if (q.length > 120) {
-    const cut = q.slice(0, 120);
-    const lastSpace = cut.lastIndexOf(" ");
-    q = lastSpace > 40 ? cut.slice(0, lastSpace) : cut;
-  }
-  return q.trim();
+  sendWsMessage({
+    type: "history_scroll_to",
+    ptyId: activePtyId,
+    text: entry.text,
+    ...(entry.ts > 0 ? { ts: entry.ts } : {}),
+  });
 }
 
 function termBufferHasRenderableText(st: TermState, maxLines = 400): boolean {

@@ -506,12 +506,84 @@ export async function tmuxScrollHistory(
   ]);
 }
 
-// Enter copy-mode and jump to a past command by searching its text. Used to
-// scroll the pane to where a history-panel entry was run. Best-effort: tmux
-// leaves the cursor put if there is no match.
-export async function tmuxSearchHistory(
+export type TmuxPanePosition = {
+  historySize: number;
+  cursorY: number;
+  paneHeight: number;
+};
+
+// Snapshot the pane's scrollback geometry. historySize + cursorY is the
+// absolute line index of the cursor, used to anchor input submissions.
+export async function tmuxPanePosition(
   name: string,
-  direction: "backward" | "forward",
+  serverHint?: TmuxServer | null,
+): Promise<TmuxPanePosition | null> {
+  const server = normalizeServerHint(serverHint) ?? await tmuxLocateSession(name);
+  if (!server) return null;
+  try {
+    const { stdout } = await tmuxExec(server, [
+      "display-message",
+      "-p",
+      "-t",
+      name,
+      "#{history_size} #{cursor_y} #{pane_height}",
+    ]);
+    const [h, c, p] = stdout.trim().split(/\s+/).map((x) => Number.parseInt(x, 10));
+    if (!Number.isFinite(h) || !Number.isFinite(c) || !Number.isFinite(p)) return null;
+    return { historySize: h, cursorY: c, paneHeight: p };
+  } catch {
+    return null;
+  }
+}
+
+// Capture a region of the pane by absolute line index (0 = oldest history
+// line). No -J: captured lines map 1:1 to grid lines so indices stay valid
+// for goto-line math.
+export async function tmuxCaptureHistoryRegion(
+  name: string,
+  historySize: number,
+  startLine: number,
+  endLine: number,
+  serverHint?: TmuxServer | null,
+): Promise<string[] | null> {
+  const server = normalizeServerHint(serverHint) ?? await tmuxLocateSession(name);
+  if (!server) return null;
+  try {
+    const { stdout } = await tmuxExec(server, [
+      "capture-pane",
+      "-p",
+      "-t",
+      name,
+      "-S",
+      String(startLine - historySize),
+      "-E",
+      String(endLine - historySize),
+    ]);
+    return stdout.replaceAll("\r", "").split("\n");
+  } catch {
+    return null;
+  }
+}
+
+// Scroll the pane so `scroll` lines of history are above the viewport bottom.
+// copy-mode goto-line sets the scroll position directly (0 = live bottom).
+export async function tmuxGotoHistoryScroll(
+  name: string,
+  scroll: number,
+  serverHint?: TmuxServer | null,
+): Promise<void> {
+  const server = normalizeServerHint(serverHint) ?? await tmuxLocateSession(name);
+  if (!server) return;
+  const n = Math.max(0, Math.floor(scroll));
+  await tmuxByServer(server, ["copy-mode", "-e", "-t", name]);
+  await tmuxByServer(server, ["send-keys", "-t", name, "-X", "goto-line", String(n)]);
+}
+
+// Literal (non-regex) backward search fallback for when we have no better
+// position estimate. search-backward-text matches text; plain search-backward
+// would treat the query as a regex.
+export async function tmuxSearchHistoryText(
+  name: string,
   query: string,
   serverHint?: TmuxServer | null,
 ): Promise<void> {
@@ -520,14 +592,7 @@ export async function tmuxSearchHistory(
   const server = normalizeServerHint(serverHint) ?? await tmuxLocateSession(name);
   if (!server) return;
   await tmuxByServer(server, ["copy-mode", "-e", "-t", name]);
-  await tmuxByServer(server, [
-    "send-keys",
-    "-t",
-    name,
-    "-X",
-    direction === "backward" ? "search-backward" : "search-forward",
-    needle,
-  ]);
+  await tmuxByServer(server, ["send-keys", "-t", name, "-X", "search-backward-text", needle]);
 }
 
 export async function tmuxCapturePaneVisible(

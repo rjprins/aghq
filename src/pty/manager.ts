@@ -107,6 +107,7 @@ export class PtyManager extends EventEmitter {
     const s = this.sessions.get(id);
     if (!s) return;
     s.pty.write(data);
+    this.emit("input", id, data);
   }
 
   resize(id: PtyId, cols: number, rows: number): void {

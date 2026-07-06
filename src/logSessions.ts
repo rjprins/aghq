@@ -917,6 +917,8 @@ export function findLogFileForSession(
 export type ConversationMessage = {
   role: "user" | "assistant";
   text: string;
+  /** Epoch ms of the log entry, when the log records one. */
+  ts: number | null;
 };
 
 export type RecentLogSessionMatch = {
@@ -997,7 +999,7 @@ export function readConversationMessages(logPath: string): ConversationMessage[]
         ? trimmedText.slice(0, MSG_TEXT_LIMIT) + "..."
         : trimmedText;
 
-    messages.push({ role, text: truncated });
+    messages.push({ role, text: truncated, ts: entryTimestampMs(entry) });
   }
 
   return messages;
@@ -1111,4 +1113,74 @@ export function findRecentLogSessionByCwd(
     lastSeenAt: match.lastSeenAt,
     prompt: match.prompt,
   };
+}
+
+// Find the log session currently being appended to for a cwd. Unlike
+// findRecentLogSessionByCwd (which keys on session *start* time and so misses
+// resumed sessions and attach-after-the-fact), this keys on recent file
+// activity: an agent process in a pane plus a log in the same cwd with a
+// fresh mtime is a strong signal they belong together. Returns null when two
+// candidates are similarly active — better unattached than misattached.
+export function findActiveLogSessionByCwd(
+  source: LogSource,
+  cwd: string,
+  options: DiscoveryOptions & {
+    activeWithinMs?: number;
+    ambiguityMs?: number;
+    scanLimit?: number;
+  } = {},
+): RecentLogSessionMatch | null {
+  const normalizedCwd = path.resolve(cwd);
+  const activeWithinMs = Math.max(1_000, Math.floor(options.activeWithinMs ?? 120_000));
+  const ambiguityMs = Math.max(0, Math.floor(options.ambiguityMs ?? 30_000));
+  const scanLimit = Math.max(1, Math.floor(options.scanLimit ?? 200));
+  const now = Date.now();
+  const roots = getSearchRoots(options).filter((root) => root.source === source);
+  const candidates: RecentLogSessionMatch[] = [];
+
+  for (const root of roots) {
+    const paths = scanDirForJsonl(root.dir, root.maxDepth);
+    const rankedPaths = paths
+      .map((logPath) => {
+        try {
+          return { logPath, stats: fs.statSync(logPath) };
+        } catch {
+          return null;
+        }
+      })
+      .filter((entry): entry is { logPath: string; stats: fs.Stats } => entry != null)
+      .sort((a, b) => b.stats.mtimeMs - a.stats.mtimeMs)
+      .slice(0, scanLimit);
+
+    for (const { logPath, stats } of rankedPaths) {
+      if (now - stats.mtimeMs > activeWithinMs) continue;
+
+      const entries = parseLogHeadEntries(logPath);
+      if (entries.length === 0) continue;
+      if (source === "codex" && isCodexSubagent(entries)) continue;
+      if (source === "claude" && isClaudeAncillaryLog(entries)) continue;
+
+      const entryCwd = extractProjectPath(entries);
+      if (!entryCwd || path.resolve(entryCwd) !== normalizedCwd) continue;
+      const sessionId = extractSessionId(entries);
+      if (!sessionId) continue;
+
+      candidates.push({
+        source,
+        sessionId,
+        logPath,
+        cwd: entryCwd,
+        createdAt: Math.floor(stats.birthtimeMs || stats.mtimeMs),
+        lastSeenAt: Math.floor(stats.mtimeMs),
+        prompt: extractFirstUserPrompt(entries),
+      });
+    }
+  }
+
+  candidates.sort((a, b) => b.lastSeenAt - a.lastSeenAt);
+  const best = candidates[0];
+  if (!best) return null;
+  const runnerUp = candidates[1];
+  if (runnerUp && best.lastSeenAt - runnerUp.lastSeenAt < ambiguityMs) return null;
+  return best;
 }

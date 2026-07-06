@@ -6,7 +6,8 @@ import type { ClientToServerMessage, PtySummary, ServerToClientMessage } from ".
 import type { PtyManager } from "../pty/manager.js";
 import type { ReadinessEngine } from "../readiness/engine.js";
 import type { WsHub } from "../ws/hub.js";
-import { tmuxCapturePaneVisible, tmuxScrollHistory, tmuxSearchHistory } from "../tmux.js";
+import { tmuxCapturePaneVisible, tmuxScrollHistory } from "../tmux.js";
+import { scrollTmuxToHistoryEntry, type InputAnchorStore } from "./history-scroll.js";
 import { AUTH_ENABLED } from "./config.js";
 import { isRecord } from "./utils.js";
 import { isTokenValid, isWsOriginAllowed, parseTokenFromHeaders, parseTokenFromUrl } from "./auth.js";
@@ -17,6 +18,7 @@ type WsDeps = {
   ptys: PtyManager;
   readinessEngine: ReadinessEngine;
   listPtys: () => Promise<unknown>;
+  inputAnchors: InputAnchorStore;
 };
 
 const MOBILE_SNAPSHOT_MAX_LINES = 20_000;
@@ -106,13 +108,12 @@ function parseWsMessage(raw: unknown): ClientToServerMessage | null {
     if (lines < 1 || lines > 200) return null;
     return { type: "tmux_control", ptyId: parsed.ptyId, direction, lines };
   }
-  if (parsed.type === "tmux_search") {
+  if (parsed.type === "history_scroll_to") {
     if (typeof parsed.ptyId !== "string" || parsed.ptyId.length === 0) return null;
-    const direction = parsed.direction;
-    const query = parsed.query;
-    if (direction !== "backward" && direction !== "forward") return null;
-    if (typeof query !== "string" || query.length === 0 || query.length > 256) return null;
-    return { type: "tmux_search", ptyId: parsed.ptyId, direction, query };
+    const text = parsed.text;
+    if (typeof text !== "string" || text.trim().length === 0 || text.length > 4096) return null;
+    const ts = typeof parsed.ts === "number" && Number.isFinite(parsed.ts) && parsed.ts > 0 ? parsed.ts : undefined;
+    return { type: "history_scroll_to", ptyId: parsed.ptyId, text, ...(ts != null ? { ts } : {}) };
   }
   if (parsed.type === "mobile_snapshot_request") {
     if (typeof parsed.requestId !== "string" || parsed.requestId.length === 0 || parsed.requestId.length > 128) return null;
@@ -160,7 +161,7 @@ async function waitForMobileSubmitGate(
 }
 
 export function registerWs(deps: WsDeps): void {
-  const { fastify, hub, ptys, readinessEngine, listPtys } = deps;
+  const { fastify, hub, ptys, readinessEngine, listPtys, inputAnchors } = deps;
   const wss = new WebSocketServer({ noServer: true });
 
   hub.onSubscriberChange = () => {
@@ -221,11 +222,17 @@ export function registerWs(deps: WsDeps): void {
         });
         return;
       }
-      if (msg.type === "tmux_search") {
+      if (msg.type === "history_scroll_to") {
         const summary = ptys.getSummary(msg.ptyId);
         if (!summary || !summary.tmuxSession) return;
-        void tmuxSearchHistory(summary.tmuxSession, msg.direction, msg.query, summary.tmuxServer).catch(() => {
-          // ignore best-effort tmux history search
+        const anchor = msg.ts != null ? inputAnchors.closestTo(msg.ptyId, msg.ts) : null;
+        void scrollTmuxToHistoryEntry({
+          tmuxSession: summary.tmuxSession,
+          tmuxServer: summary.tmuxServer,
+          text: msg.text,
+          anchor,
+        }).catch(() => {
+          // ignore best-effort history scrolling
         });
         return;
       }

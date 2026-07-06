@@ -694,7 +694,7 @@ export function registerPtyRoutes(deps: PtyRoutesDeps): void {
       .filter((x: any) => x && typeof x.text === "string" && x.text.trim().length > 0)
       .map((x: any) => ({
         text: String(x.text),
-        bufferLine: typeof x.bufferLine === "number" ? x.bufferLine : 0,
+        ts: typeof x.ts === "number" && Number.isFinite(x.ts) && x.ts > 0 ? x.ts : 0,
       }))
       .slice(-40);
     store.saveInputHistory(id, { lastInput, processHint, history: entries });

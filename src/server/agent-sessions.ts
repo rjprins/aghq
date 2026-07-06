@@ -256,6 +256,36 @@ export function createAgentSessionService(deps: AgentSessionServiceDeps) {
     agentSessionRefByPty.set(ptyId, { provider, providerSessionId });
   }
 
+  // Attach a pty to a session discovered from its JSONL log (auto-attach
+  // sweep): register the ref and persist a summary so the session shows up
+  // in lists and survives restarts.
+  function attachDiscoveredSessionToPty(
+    ptyId: string,
+    provider: AgentProvider,
+    providerSessionId: string,
+    opts: { cwd: string | null; name?: string | null; createdAt?: number | null },
+  ): void {
+    attachPtyToAgentSession(ptyId, provider, providerSessionId);
+    const now = Date.now();
+    const persisted = store.getAgentSession(provider, providerSessionId);
+    const cwd = opts.cwd ?? persisted?.cwd ?? null;
+    upsertAgentSessionSummary({
+      id: agentSessionPublicId(provider, providerSessionId),
+      provider,
+      providerSessionId,
+      name: persisted?.name || opts.name?.trim() || defaultAgentSessionName(provider, providerSessionId, cwd),
+      command: persisted?.command ?? provider,
+      args: persisted?.args ?? resumeArgsForProvider(provider, providerSessionId),
+      cwd,
+      cwdSource: opts.cwd ? "log" : (persisted?.cwdSource ?? "db"),
+      projectRoot: serverProjectRootFromCwd(cwd),
+      worktree: serverWorktreeFromCwd(cwd),
+      createdAt: persisted?.createdAt ?? opts.createdAt ?? now,
+      lastSeenAt: now,
+      lastRestoredAt: persisted?.lastRestoredAt ?? null,
+    }, persisted?.nameSource ?? "derived");
+  }
+
   function attachedAgentSessionForPty(ptyId: string): { provider: AgentProvider; providerSessionId: string } | null {
     return agentSessionRefByPty.get(ptyId) ?? null;
   }
@@ -294,6 +324,7 @@ export function createAgentSessionService(deps: AgentSessionServiceDeps) {
     upsertAgentSessionSummary,
     persistRuntimeCwdForAgentPty,
     attachPtyToAgentSession,
+    attachDiscoveredSessionToPty,
     attachedAgentSessionForPty,
     detachPty,
     renameAttachedSession,

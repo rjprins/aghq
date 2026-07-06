@@ -69,7 +69,7 @@ export type ClientToServerMessage =
   | { type: "input"; ptyId: PtyId; data: string }
   | { type: "resize"; ptyId: PtyId; cols: number; rows: number }
   | { type: "tmux_control"; ptyId: PtyId; direction: "up" | "down"; lines: number }
-  | { type: "tmux_search"; ptyId: PtyId; direction: "backward" | "forward"; query: string }
+  | { type: "history_scroll_to"; ptyId: PtyId; text: string; ts?: number }
   | { type: "mobile_submit"; ptyId: PtyId; body: string }
   | { type: "mobile_snapshot_request"; requestId: string; ptyId: PtyId; lines: number }
   | { type: "kick_other_subscribers"; ptyId: PtyId };

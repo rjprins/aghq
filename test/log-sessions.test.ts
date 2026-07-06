@@ -504,10 +504,24 @@ describe("readConversationMessages", () => {
 
     const messages = readConversationMessages(logFile);
     expect(messages).toHaveLength(4);
-    expect(messages[0]).toEqual({ role: "user", text: "Fix the bug in auth.js" });
-    expect(messages[1]).toEqual({ role: "assistant", text: "I'll look at auth.js and fix the bug." });
-    expect(messages[2]).toEqual({ role: "user", text: "Great, now add tests" });
-    expect(messages[3]).toEqual({ role: "assistant", text: "Adding tests for auth.js now." });
+    expect(messages[0]).toEqual({ role: "user", text: "Fix the bug in auth.js", ts: null });
+    expect(messages[1]).toEqual({ role: "assistant", text: "I'll look at auth.js and fix the bug.", ts: null });
+    expect(messages[2]).toEqual({ role: "user", text: "Great, now add tests", ts: null });
+    expect(messages[3]).toEqual({ role: "assistant", text: "Adding tests for auth.js now.", ts: null });
+  });
+
+  test("extracts entry timestamps as epoch ms", async () => {
+    tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "agmux-conv-"));
+    const logFile = path.join(tmpRoot, "session.jsonl");
+    await writeJsonl(logFile, [
+      { type: "user", timestamp: "2026-07-06T10:00:00.000Z", message: { role: "user", content: "First prompt" } },
+      { type: "response_item", payload: { role: "user", content: [{ type: "input_text", text: "Codex prompt" }], timestamp: "2026-07-06T11:00:00.000Z" } },
+    ]);
+
+    const messages = readConversationMessages(logFile);
+    expect(messages).toHaveLength(2);
+    expect(messages[0].ts).toBe(Date.parse("2026-07-06T10:00:00.000Z"));
+    expect(messages[1].ts).toBe(Date.parse("2026-07-06T11:00:00.000Z"));
   });
 
   test("extracts messages from codex format", async () => {
@@ -521,8 +535,8 @@ describe("readConversationMessages", () => {
 
     const messages = readConversationMessages(logFile);
     expect(messages).toHaveLength(2);
-    expect(messages[0]).toEqual({ role: "user", text: "Add dark mode" });
-    expect(messages[1]).toEqual({ role: "assistant", text: "I'll implement dark mode." });
+    expect(messages[0]).toEqual({ role: "user", text: "Add dark mode", ts: null });
+    expect(messages[1]).toEqual({ role: "assistant", text: "I'll implement dark mode.", ts: null });
   });
 
   test("skips non-message entries", async () => {

@@ -9,18 +9,22 @@ import type { AgentProvider, PrSummary, PtySummary, ServerToClientMessage } from
 import type { SqliteStore } from "../persist/sqlite.js";
 import { projectRootFromCwdAny, worktreeFromCwdAny } from "../worktree.js";
 import {
+  tmuxCaptureHistoryRegion,
   tmuxCreateLinkedSession,
   tmuxCreateWindow,
   tmuxKillSession,
   tmuxKillWindow,
   tmuxListWindows,
   tmuxPaneCurrentPath,
+  tmuxPanePosition,
   tmuxPruneDetachedLinkedSessions,
   tmuxTargetSession,
   tmuxEnsureSession,
   type TmuxServer,
 } from "../tmux.js";
 import type { TriggerSpawnShellOptions } from "../triggers/types.js";
+import { findActiveLogSessionByCwd, readConversationMessages } from "../logSessions.js";
+import { historyNeedle, InputAnchorStore, locateInLines } from "./history-scroll.js";
 
 export type RuntimeDeps = {
   store: SqliteStore;
@@ -28,6 +32,12 @@ export type RuntimeDeps = {
   agentSessions: {
     persistRuntimeCwdForAgentPty: (ptyId: string, cwd: string | null | undefined, ts: number) => void;
     attachedAgentSessionForPty: (ptyId: string) => { provider: AgentProvider; providerSessionId: string } | null;
+    attachDiscoveredSessionToPty: (
+      ptyId: string,
+      provider: AgentProvider,
+      providerSessionId: string,
+      opts: { cwd: string | null; name?: string | null; createdAt?: number | null },
+    ) => void;
     detachPty: (ptyId: string) => void;
   };
   readinessTraceMax: number;
@@ -121,6 +131,88 @@ export function createRuntime(deps: RuntimeDeps) {
         });
     }
   }, cwdPollIntervalMs);
+
+  // Input anchors: on every submit (Enter written to a tmux pane), remember
+  // the pane's absolute cursor line keyed by time. History-panel clicks use
+  // these to scroll back to where a prompt was entered.
+  const inputAnchors = new InputAnchorStore();
+  const anchorSampledAt = new Map<string, number>();
+  ptys.on("input", (ptyId: string, data: string) => {
+    if (!data.includes("\r") && !data.includes("\n")) return;
+    const summary = ptys.getSummary(ptyId);
+    if (!summary?.tmuxSession || summary.status !== "running") return;
+    const now = Date.now();
+    if (now - (anchorSampledAt.get(ptyId) ?? 0) < 250) return;
+    anchorSampledAt.set(ptyId, now);
+    void tmuxPanePosition(summary.tmuxSession, summary.tmuxServer)
+      .then((pos) => {
+        if (pos) inputAnchors.record(ptyId, { ts: now, line: pos.historySize + pos.cursorY });
+      })
+      .catch(() => {
+        // ignore best-effort anchor sampling failures
+      });
+  });
+
+  // Auto-attach: link running agent processes to the JSONL session they are
+  // appending to (matched by cwd + recent log activity). Covers agents
+  // started by hand inside a shell and re-links attachments lost to a server
+  // restart. Idle sessions attach on their next interaction, when their log
+  // mtime bumps.
+  const AGENT_PROCESSES = new Set<AgentProvider>(["claude", "codex", "pi"]);
+  const autoAttachIntervalMs = Math.max(
+    2_000,
+    Number(process.env.AGMUX_AUTO_ATTACH_INTERVAL_MS ?? "10000") || 10_000,
+  );
+  // cwd + activity alone can misattach (another process of the same agent
+  // writing to a log in the same cwd), so require content evidence: the
+  // log's last user prompt must be visible in this pane's scrollback.
+  async function paneShowsLastUserPrompt(
+    tmuxSession: string,
+    tmuxServer: TmuxServer | null | undefined,
+    logPath: string,
+  ): Promise<boolean> {
+    const messages = readConversationMessages(logPath);
+    const lastUser = [...messages].reverse().find((m) => m.role === "user");
+    if (!lastUser) return false;
+    const needle = historyNeedle(lastUser.text);
+    if (!needle) return false;
+    const pos = await tmuxPanePosition(tmuxSession, tmuxServer);
+    if (!pos) return false;
+    const bottom = pos.historySize + pos.paneHeight - 1;
+    const start = Math.max(0, bottom - 2_000);
+    const lines = await tmuxCaptureHistoryRegion(tmuxSession, pos.historySize, start, bottom, tmuxServer);
+    if (!lines) return false;
+    return locateInLines(lines, start, needle, null) != null;
+  }
+
+  async function autoAttachSweep(): Promise<void> {
+    let changed = false;
+    const summaries = await readinessEngine.withActiveProcesses(ptys.list());
+    for (const p of summaries) {
+      if (p.status !== "running" || !p.tmuxSession || !p.cwd) continue;
+      if (agentSessions.attachedAgentSessionForPty(p.id)) continue;
+      const proc = (p.activeProcess ?? "").toLowerCase() as AgentProvider;
+      if (!AGENT_PROCESSES.has(proc)) continue;
+      const match = findActiveLogSessionByCwd(proc, p.cwd);
+      if (!match) continue;
+      const verified = await paneShowsLastUserPrompt(p.tmuxSession, p.tmuxServer, match.logPath).catch(() => false);
+      if (!verified) continue;
+      agentSessions.attachDiscoveredSessionToPty(p.id, proc, match.sessionId, {
+        cwd: match.cwd ?? p.cwd,
+        name: match.prompt,
+        createdAt: match.createdAt,
+      });
+      logger.info(
+        { ptyId: p.id, provider: proc, providerSessionId: match.sessionId, logPath: match.logPath },
+        "auto-attached agent session from log activity",
+      );
+      changed = true;
+    }
+    if (changed) await broadcastPtyList();
+  }
+  setInterval(() => {
+    void autoAttachSweep().catch(() => {});
+  }, autoAttachIntervalMs);
 
   async function listPtys(): Promise<PtySummary[]> {
     const base = await readinessEngine.withActiveProcesses(ptys.list());
@@ -240,6 +332,8 @@ export function createRuntime(deps: RuntimeDeps) {
     store.clearTaskAssignment(ptyId);
     readinessEngine.markExited(ptyId);
     agentSessions.detachPty(ptyId);
+    inputAnchors.clear(ptyId);
+    anchorSampledAt.delete(ptyId);
     logger.info({ ptyId, code, signal }, "pty exited");
     broadcast({ type: "pty_exit", ptyId, code, signal });
 
@@ -391,6 +485,7 @@ export function createRuntime(deps: RuntimeDeps) {
     ptys,
     hub,
     readinessEngine,
+    inputAnchors,
     triggerLoader,
     listPtys,
     broadcast,

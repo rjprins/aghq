@@ -14,7 +14,8 @@ export type PersistedEvent = {
 
 export type InputHistoryEntry = {
   text: string;
-  bufferLine: number;
+  /** Epoch ms of the submit; 0 when unknown (e.g. rows persisted before ts existed). */
+  ts: number;
 };
 
 export type InputMeta = {
@@ -301,9 +302,9 @@ export class SqliteStore {
       try {
         const parsed = JSON.parse(r.history_json);
         if (Array.isArray(parsed)) {
-          history = parsed.filter(
-            (x: any) => x && typeof x.text === "string" && x.text.trim().length > 0,
-          );
+          history = parsed
+            .filter((x: any) => x && typeof x.text === "string" && x.text.trim().length > 0)
+            .map((x: any) => ({ text: x.text, ts: typeof x.ts === "number" ? x.ts : 0 }));
         }
       } catch {
         // ignore

@@ -769,6 +769,157 @@ test("clicking a history entry scrolls the terminal to that command", async ({ p
   }
 });
 
+test("clicking an older duplicate history entry scrolls to its own occurrence", async ({ page }) => {
+  await page.goto("/?nosup=1");
+
+  await page.addStyleTag({
+    content: `
+      .terminal-wrap { height: 260px !important; }
+      #terminal { height: 240px !important; min-height: 240px !important; }
+    `,
+  });
+
+  await page.getByRole("button", { name: "New" }).click();
+  await expect(page.locator(".pty-item.active")).toHaveCount(1);
+
+  const dumpActive = () =>
+    page.evaluate(() => {
+      const d = (window as any).__agmux?.dumpActive;
+      return typeof d === "function" ? String(d()) : "";
+    });
+  const dumpViewport = () =>
+    page.evaluate(() => (window as any).__agmux?.dumpViewport?.() ?? "");
+  const sendInput = (cmd: string) =>
+    page.evaluate((c) => (window as any).__agmux?.sendInput?.(c + "\r"), cmd);
+
+  // A unique neighbor right above the first occurrence discriminates it.
+  await sendInput("echo __before_first__");
+  await expect.poll(dumpActive, { timeout: 10_000 }).toContain("__before_first__");
+
+  // Same command runs twice, far apart in scrollback.
+  await sendInput("echo __dup_target__");
+  await expect.poll(dumpActive, { timeout: 10_000 }).toContain("__dup_target__");
+  await sendInput("seq 1 120");
+  await expect.poll(dumpActive, { timeout: 30_000 }).toMatch(/\b120\b/);
+  await sendInput("echo __dup_target__");
+  await sendInput("seq 1 40");
+  await expect.poll(dumpActive, { timeout: 30_000 }).toMatch(/\b40\b/);
+
+  await page.evaluate(() => (window as any).__agmux?.scrollToBottomActive?.());
+
+  // Click the OLDER of the two identical entries.
+  await page.locator("#input-context-toggle").click();
+  await expect(page.locator("#input-history-list")).not.toHaveClass(/hidden/, { timeout: 10_000 });
+  const entries = page.locator("#input-history-list li", { hasText: "echo __dup_target__" });
+  await expect(entries).toHaveCount(2, { timeout: 10_000 });
+  await entries.first().click();
+
+  // Timestamp anchors must resolve to the first occurrence: its unique
+  // neighbor is in view. A naive last-match search would land on the second.
+  await expect.poll(dumpViewport, { timeout: 10_000 }).toContain("__before_first__");
+
+  // Cleanup.
+  const ptyId = await page.locator(".pty-item.active").evaluate((el) => el.getAttribute("data-pty-id"));
+  if (ptyId) {
+    const token = await readSessionToken(page);
+    await page.request.post(`/api/ptys/${encodeURIComponent(ptyId)}/kill?token=${encodeURIComponent(token)}`);
+  }
+});
+
+test("auto-attaches a live claude session and scrolls to a transcript prompt", async ({ page }) => {
+  const hasTmux = await commandAvailable("tmux", ["-V"]);
+  test.skip(!hasTmux, "requires tmux");
+  const logRoot = process.env.E2E_AGENT_LOG_ROOT;
+  test.skip(!logRoot, "requires isolated agent log root");
+
+  const suffix = `${Date.now().toString(36)}-${Math.floor(Math.random() * 1_000_000).toString(36)}`;
+  const binDir = `/tmp/agmux-e2e-claude-bin-${suffix}`;
+  const sessionId = `e2e-attach-${suffix}`;
+  const logDir = path.join(logRoot!, "claude", "projects", "e2e");
+  const logFile = path.join(logDir, `${sessionId}.jsonl`);
+  const prompt = "Fix the widget frobnicator in the flux capacitor";
+  let ptyId: string | null = null;
+
+  // Fake claude: a symlink to sleep so process detection sees "claude".
+  fs.mkdirSync(binDir, { recursive: true });
+  await execFileAsync("ln", ["-sf", "/bin/sleep", `${binDir}/claude`]);
+
+  await page.goto("/?nosup=1");
+  const token = await readSessionToken(page);
+
+  await page.addStyleTag({
+    content: `
+      .terminal-wrap { height: 260px !important; }
+      #terminal { height: 240px !important; min-height: 240px !important; }
+    `,
+  });
+
+  await page.getByRole("button", { name: "New" }).click();
+  await expect(page.locator(".pty-item.active")).toHaveCount(1);
+  ptyId = await page.locator(".pty-item.active").evaluate((el) => el.getAttribute("data-pty-id"));
+
+  const dumpActive = () =>
+    page.evaluate(() => {
+      const d = (window as any).__agmux?.dumpActive;
+      return typeof d === "function" ? String(d()) : "";
+    });
+  const dumpViewport = () =>
+    page.evaluate(() => (window as any).__agmux?.dumpViewport?.() ?? "");
+  const sendInput = (cmd: string) =>
+    page.evaluate((c) => (window as any).__agmux?.sendInput?.(c + "\r"), cmd);
+
+  try {
+    // Render the prompt echo the way Claude Code does, then push it off screen.
+    await sendInput(`echo "❯ ${prompt}"`);
+    await expect.poll(dumpActive, { timeout: 10_000 }).toContain(`❯ ${prompt}`);
+    await sendInput("seq 1 120");
+    await expect.poll(dumpActive, { timeout: 30_000 }).toMatch(/\b120\b/);
+
+    // The fixture's cwd must equal the cwd the server tracks for this pty.
+    const ptysRes = await page.request.get(`/api/ptys?token=${encodeURIComponent(token)}`);
+    const ptysJson = (await ptysRes.json()) as { ptys?: Array<{ id: string; cwd?: string | null }> };
+    const cwd = ptysJson.ptys?.find((p) => p.id === ptyId)?.cwd;
+    expect(cwd, "pty cwd should be known").toBeTruthy();
+
+    // A live claude JSONL log for that cwd, containing the prompt.
+    fs.mkdirSync(logDir, { recursive: true });
+    fs.writeFileSync(
+      logFile,
+      JSON.stringify({
+        type: "user",
+        sessionId,
+        cwd,
+        timestamp: new Date().toISOString(),
+        message: { role: "user", content: prompt },
+      }) + "\n",
+      "utf8",
+    );
+
+    // Start the fake claude process; the sweep should now attach the session.
+    await sendInput(`${binDir}/claude 300`);
+
+    // The dropdown switches to transcript history: exactly the one prompt.
+    await page.locator("#input-context-toggle").click();
+    await expect(page.locator("#input-history-list")).not.toHaveClass(/hidden/, { timeout: 10_000 });
+    const entry = page.locator("#input-history-list li", { hasText: "widget frobnicator" });
+    await expect(entry).toHaveCount(1, { timeout: 20_000 });
+    await expect(page.locator("#input-history-label")).toHaveText("History (1)", { timeout: 10_000 });
+
+    // From the bottom the echo is out of view; clicking the transcript entry
+    // brings it back.
+    await page.evaluate(() => (window as any).__agmux?.scrollToBottomActive?.());
+    await expect.poll(dumpViewport, { timeout: 5_000 }).not.toContain("❯ Fix the widget");
+    await entry.click();
+    await expect.poll(dumpViewport, { timeout: 10_000 }).toContain(`❯ ${prompt}`);
+  } finally {
+    if (ptyId) {
+      await page.request.post(`/api/ptys/${encodeURIComponent(ptyId)}/kill?token=${encodeURIComponent(token)}`);
+    }
+    fs.rmSync(binDir, { recursive: true, force: true });
+    fs.rmSync(logFile, { force: true });
+  }
+});
+
 test("pty list shows running subprocess name", async ({ page }) => {
   await page.goto("/?nosup=1");
   await page.getByRole("button", { name: "New" }).click();

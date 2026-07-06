@@ -115,6 +115,7 @@ registerWs({
   ptys: runtime.ptys,
   readinessEngine: runtime.readinessEngine,
   listPtys: runtime.listPtys,
+  inputAnchors: runtime.inputAnchors,
 });
 
 function openBrowser(url: string): void {
