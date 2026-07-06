@@ -2823,11 +2823,19 @@ function renderInputContextBar(): void {
     li.textContent = ptyProviderHistoryLoading.has(activePtyId) ? "Loading session history..." : "No inputs yet";
     inputHistoryListEl.appendChild(li);
   } else {
+    // Only local shell-input entries can scroll the terminal to where they
+    // ran; provider (agent JSONL) history has no reliable place in the pane.
+    const scrollable = providerHistory.length === 0;
     for (let i = 0; i < history.length; i++) {
       const entry = history[i];
       const li = document.createElement("li");
       li.textContent = entry.text;
       li.title = entry.text;
+      if (scrollable) {
+        li.classList.add("clickable");
+        li.title = `${entry.text}\n(click to scroll the terminal here)`;
+        li.onclick = () => scrollActiveTerminalToHistory(entry.text);
+      }
       inputHistoryListEl.appendChild(li);
     }
   }
@@ -5191,6 +5199,31 @@ function scrollActiveTerminalToBottom(): void {
   st.term.scrollToBottom();
   updateFollowButtonVisibility();
   if (mobileViewport) scheduleMobileRender();
+}
+
+// Terminal scrollback lives in tmux, not the local xterm buffer, so scrolling
+// to a past command means driving tmux copy-mode to search backward for it
+// (same channel as wheel scrolling). Best-effort: a no-op if the text has
+// scrolled out of tmux history or no longer matches.
+function scrollActiveTerminalToHistory(text: string): void {
+  if (!activePtyId) return;
+  const query = historySearchQuery(text);
+  if (!query) return;
+  sendWsMessage({ type: "tmux_search", ptyId: activePtyId, direction: "backward", query });
+}
+
+// Reduce a stored history entry to a literal string tmux copy-mode can find:
+// drop the truncation ellipsis and cap the length so long, wrapped commands
+// still match on their leading portion.
+function historySearchQuery(text: string): string {
+  let q = text.trim();
+  if (q.endsWith("...")) q = q.slice(0, -3).trim();
+  if (q.length > 120) {
+    const cut = q.slice(0, 120);
+    const lastSpace = cut.lastIndexOf(" ");
+    q = lastSpace > 40 ? cut.slice(0, lastSpace) : cut;
+  }
+  return q.trim();
 }
 
 function termBufferHasRenderableText(st: TermState, maxLines = 400): boolean {

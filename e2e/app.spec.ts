@@ -710,6 +710,65 @@ test("scroll up after cat reveals the cat command", async ({ page }) => {
   }
 });
 
+test("clicking a history entry scrolls the terminal to that command", async ({ page }) => {
+  await page.goto("/?nosup=1");
+
+  // Constrain terminal height so a marker command scrolls out of view.
+  await page.addStyleTag({
+    content: `
+      .terminal-wrap { height: 260px !important; }
+      #terminal { height: 240px !important; min-height: 240px !important; }
+    `,
+  });
+
+  await page.getByRole("button", { name: "New" }).click();
+  await expect(page.locator(".pty-item.active")).toHaveCount(1);
+
+  const dumpActive = () =>
+    page.evaluate(() => {
+      const d = (window as any).__agmux?.dumpActive;
+      return typeof d === "function" ? String(d()) : "";
+    });
+  const dumpViewport = () =>
+    page.evaluate(() => (window as any).__agmux?.dumpViewport?.() ?? "");
+  const sendInput = (cmd: string) =>
+    page.evaluate((c) => (window as any).__agmux?.sendInput?.(c + "\r"), cmd);
+
+  // Warm up so the marker prompt is past buffer line 0 (line 0 is never clickable).
+  await sendInput("echo __warmup__");
+  await expect.poll(dumpActive, { timeout: 10_000 }).toContain("__warmup__");
+
+  // Marker command whose prompt position we later scroll back to.
+  await sendInput("echo __scroll_target__");
+  await expect.poll(dumpActive, { timeout: 10_000 }).toContain("__scroll_target__");
+
+  // Push the marker off-screen with a burst of output.
+  await sendInput("seq 1 120 > /tmp/e2e-history-scroll.txt && cat /tmp/e2e-history-scroll.txt");
+  await expect.poll(dumpActive, { timeout: 30_000 }).toMatch(/\b120\b/);
+
+  // At the bottom the marker is scrolled out of the visible viewport.
+  await page.evaluate(() => (window as any).__agmux?.scrollToBottomActive?.());
+  await expect.poll(dumpViewport, { timeout: 5_000 }).not.toContain("__scroll_target__");
+
+  // Open the history dropdown and click the marker entry.
+  await page.locator("#input-context-toggle").click();
+  await expect(page.locator("#input-history-list")).not.toHaveClass(/hidden/, { timeout: 10_000 });
+  const entry = page.locator("#input-history-list li", { hasText: "echo __scroll_target__" });
+  await expect(entry).toHaveClass(/clickable/, { timeout: 10_000 });
+  await entry.click();
+
+  // Clicking drives tmux copy-mode to that command; the pane repaint streams
+  // back and the marker becomes visible in the terminal viewport again.
+  await expect.poll(dumpViewport, { timeout: 10_000 }).toContain("__scroll_target__");
+
+  // Cleanup.
+  const ptyId = await page.locator(".pty-item.active").evaluate((el) => el.getAttribute("data-pty-id"));
+  if (ptyId) {
+    const token = await readSessionToken(page);
+    await page.request.post(`/api/ptys/${encodeURIComponent(ptyId)}/kill?token=${encodeURIComponent(token)}`);
+  }
+});
+
 test("pty list shows running subprocess name", async ({ page }) => {
   await page.goto("/?nosup=1");
   await page.getByRole("button", { name: "New" }).click();

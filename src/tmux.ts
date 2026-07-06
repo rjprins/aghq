@@ -506,6 +506,30 @@ export async function tmuxScrollHistory(
   ]);
 }
 
+// Enter copy-mode and jump to a past command by searching its text. Used to
+// scroll the pane to where a history-panel entry was run. Best-effort: tmux
+// leaves the cursor put if there is no match.
+export async function tmuxSearchHistory(
+  name: string,
+  direction: "backward" | "forward",
+  query: string,
+  serverHint?: TmuxServer | null,
+): Promise<void> {
+  const needle = query.trim();
+  if (!needle) return;
+  const server = normalizeServerHint(serverHint) ?? await tmuxLocateSession(name);
+  if (!server) return;
+  await tmuxByServer(server, ["copy-mode", "-e", "-t", name]);
+  await tmuxByServer(server, [
+    "send-keys",
+    "-t",
+    name,
+    "-X",
+    direction === "backward" ? "search-backward" : "search-forward",
+    needle,
+  ]);
+}
+
 export async function tmuxCapturePaneVisible(
   name: string,
   serverHint?: TmuxServer | null,

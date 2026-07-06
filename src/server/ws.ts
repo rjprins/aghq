@@ -6,7 +6,7 @@ import type { ClientToServerMessage, PtySummary, ServerToClientMessage } from ".
 import type { PtyManager } from "../pty/manager.js";
 import type { ReadinessEngine } from "../readiness/engine.js";
 import type { WsHub } from "../ws/hub.js";
-import { tmuxCapturePaneVisible, tmuxScrollHistory } from "../tmux.js";
+import { tmuxCapturePaneVisible, tmuxScrollHistory, tmuxSearchHistory } from "../tmux.js";
 import { AUTH_ENABLED } from "./config.js";
 import { isRecord } from "./utils.js";
 import { isTokenValid, isWsOriginAllowed, parseTokenFromHeaders, parseTokenFromUrl } from "./auth.js";
@@ -105,6 +105,14 @@ function parseWsMessage(raw: unknown): ClientToServerMessage | null {
     if (typeof lines !== "number" || !Number.isInteger(lines)) return null;
     if (lines < 1 || lines > 200) return null;
     return { type: "tmux_control", ptyId: parsed.ptyId, direction, lines };
+  }
+  if (parsed.type === "tmux_search") {
+    if (typeof parsed.ptyId !== "string" || parsed.ptyId.length === 0) return null;
+    const direction = parsed.direction;
+    const query = parsed.query;
+    if (direction !== "backward" && direction !== "forward") return null;
+    if (typeof query !== "string" || query.length === 0 || query.length > 256) return null;
+    return { type: "tmux_search", ptyId: parsed.ptyId, direction, query };
   }
   if (parsed.type === "mobile_snapshot_request") {
     if (typeof parsed.requestId !== "string" || parsed.requestId.length === 0 || parsed.requestId.length > 128) return null;
@@ -210,6 +218,14 @@ export function registerWs(deps: WsDeps): void {
         if (!summary || !summary.tmuxSession) return;
         void tmuxScrollHistory(summary.tmuxSession, msg.direction, msg.lines, summary.tmuxServer).catch(() => {
           // ignore best-effort tmux history control
+        });
+        return;
+      }
+      if (msg.type === "tmux_search") {
+        const summary = ptys.getSummary(msg.ptyId);
+        if (!summary || !summary.tmuxSession) return;
+        void tmuxSearchHistory(summary.tmuxSession, msg.direction, msg.query, summary.tmuxServer).catch(() => {
+          // ignore best-effort tmux history search
         });
         return;
       }
