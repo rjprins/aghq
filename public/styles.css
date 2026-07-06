@@ -110,7 +110,9 @@ body.sidebar-resizing .sidebar-resizer::before {
   outline-offset: -2px;
 }
 #app.sidebar-collapsed .sidebar-resizer {
-  display: none;
+  /* Stay in grid flow (its track is 0px when collapsed); display:none would
+     drop the grid item and shift .main into the 0px track, collapsing it. */
+  visibility: hidden;
 }
 body.sidebar-resizing {
   cursor: col-resize;

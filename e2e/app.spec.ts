@@ -298,6 +298,42 @@ test("can create a PTY and fires proceed trigger", async ({ page }) => {
   }
 });
 
+test("collapsing the sidebar widens the terminal instead of crushing it", async ({ page }) => {
+  const token = await readSessionToken(page);
+  await page.goto("/?nosup=1");
+  await page.getByRole("button", { name: "New" }).click();
+  await expect(page.locator(".pty-item.active")).toHaveCount(1);
+
+  const ptyId = await page.locator(".pty-item.active").evaluate((el) => el.getAttribute("data-pty-id"));
+
+  const terminalWidth = async (): Promise<number> =>
+    page.locator("#terminal").evaluate((el) => Math.round(el.getBoundingClientRect().width));
+
+  try {
+    // Wait for the initial fit to settle so we have a stable baseline.
+    await expect.poll(terminalWidth, { timeout: 10_000 }).toBeGreaterThan(100);
+    const expandedWidth = await terminalWidth();
+
+    await page.locator("#btn-sidebar-toggle").click();
+    await expect(page.locator("#app")).toHaveClass(/sidebar-collapsed/);
+
+    // Regression: with display:none on the resizer, .main auto-placed into the
+    // 0px grid track and #terminal collapsed to ~2px. It must instead widen.
+    await expect.poll(terminalWidth, { timeout: 10_000 }).toBeGreaterThan(expandedWidth);
+    const collapsedWidth = await terminalWidth();
+    expect(collapsedWidth).toBeGreaterThan(400);
+
+    // Expanding again restores the narrower width.
+    await page.locator("#btn-sidebar-toggle").click();
+    await expect(page.locator("#app")).not.toHaveClass(/sidebar-collapsed/);
+    await expect.poll(terminalWidth, { timeout: 10_000 }).toBeLessThan(collapsedWidth);
+  } finally {
+    if (ptyId) {
+      await page.request.post(`/api/ptys/${encodeURIComponent(ptyId)}/kill?token=${encodeURIComponent(token)}`);
+    }
+  }
+});
+
 test("can reorder running sidebar sessions by dragging", async ({ page }) => {
   const token = await readSessionToken(page);
   const ptyIds: string[] = [];

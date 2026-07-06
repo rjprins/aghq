@@ -737,10 +737,12 @@ function toggleSidebar(): void {
   btnSidebarToggle.innerHTML = sidebarCollapsed ? "&raquo;" : "&laquo;";
   btnSidebarToggle.title = sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar";
   renderList();
-  // Re-fit terminal after sidebar resize transition
+  // Re-fit after the 0.2s grid-template-columns transition settles. Use the
+  // full resize path so the backend learns the new size (queueResize) and the
+  // buffer is re-wrapped (reflow); a bare fit() leaves garbled output.
   setTimeout(() => {
-    const st = activePtyId ? terms.get(activePtyId) : null;
-    if (st) st.fit.fit();
+    fitAndResizeActive();
+    reflowActiveTerm();
   }, 250);
 }
 btnSidebarToggle.addEventListener("click", toggleSidebar);
