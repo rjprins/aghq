@@ -127,6 +127,71 @@ export async function listMyActivePRs(ref: AzureRepoRef, creator: string): Promi
   }));
 }
 
+type RawPrDetails = {
+  pullRequestId: number;
+  title: string;
+  status?: string;
+  sourceRefName?: string;
+  closedDate?: string | null;
+  lastMergeSourceCommit?: { commitId?: string } | null;
+};
+
+export type PrResolution = {
+  id: number;
+  title: string;
+  /** Azure PR status, lowercased ("active" | "completed" | "abandoned" | ...). */
+  status: string;
+  /** epoch ms of closedDate, or null while open. */
+  closedAt: number | null;
+  /** lastMergeSourceCommit.commitId — the commit the squash was cut from. */
+  mergeSourceSha: string | null;
+};
+
+const isClosedStatus = (s: string): s is "completed" | "abandoned" => s === "completed" || s === "abandoned";
+
+function toPrResolution(pr: RawPrDetails): PrResolution {
+  return {
+    id: pr.pullRequestId,
+    title: pr.title,
+    status: (pr.status ?? "").toLowerCase(),
+    closedAt: pr.closedDate ? Date.parse(pr.closedDate) || null : null,
+    mergeSourceSha: pr.lastMergeSourceCommit?.commitId ?? null,
+  };
+}
+
+/** The most recently closed (completed or abandoned) PR from a branch, or null. */
+export async function getCompletedPrForBranch(
+  ref: AzureRepoRef,
+  branch: string,
+): Promise<(PrResolution & { status: "completed" | "abandoned" }) | null> {
+  const raw = await azJson<RawPrDetails[]>([
+    "repos", "pr", "list",
+    "--org", ref.orgUrl,
+    "--project", ref.project,
+    "--repository", ref.repo,
+    "--source-branch", branch,
+    "--status", "all",
+    "-o", "json",
+  ]);
+  const closed = raw
+    .filter((pr) => pr.sourceRefName === `refs/heads/${branch}`)
+    .map(toPrResolution)
+    .filter((pr): pr is PrResolution & { status: "completed" | "abandoned" } => isClosedStatus(pr.status));
+  closed.sort((a, b) => (b.closedAt ?? 0) - (a.closedAt ?? 0));
+  return closed[0] ?? null;
+}
+
+/** Fetch a single PR by id (any status). Throws if the PR does not exist. */
+export async function getPrById(ref: AzureRepoRef, prId: number): Promise<PrResolution> {
+  const raw = await azJson<RawPrDetails>([
+    "repos", "pr", "show",
+    "--id", String(prId),
+    "--org", ref.orgUrl,
+    "-o", "json",
+  ]);
+  return toPrResolution(raw);
+}
+
 type RawThread = {
   id: number;
   status?: string | null;

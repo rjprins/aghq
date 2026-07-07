@@ -19,13 +19,21 @@
             "name": "ptyId",
             "in": "query",
             "required": true,
-            "schema": { "type": "string" }
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
-          "200": { "description": "OK" },
-          "400": { "description": "Bad request" },
-          "502": { "description": "Upstream (az) failure" }
+          "200": {
+            "description": "OK"
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "502": {
+            "description": "Upstream (az) failure"
+          }
         }
       }
     },
@@ -38,15 +46,25 @@
             "application/json": {
               "schema": {
                 "type": "object",
-                "properties": { "ptyId": { "type": "string" } },
-                "required": ["ptyId"]
+                "properties": {
+                  "ptyId": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "ptyId"
+                ]
               }
             }
           }
         },
         "responses": {
-          "200": { "description": "OK" },
-          "400": { "description": "Bad request" }
+          "200": {
+            "description": "OK"
+          },
+          "400": {
+            "description": "Bad request"
+          }
         }
       }
     },
@@ -54,7 +72,9 @@
       "get": {
         "summary": "List discovered agent sessions",
         "responses": {
-          "200": { "description": "OK" }
+          "200": {
+            "description": "OK"
+          }
         }
       }
     },
@@ -62,13 +82,23 @@
       "get": {
         "summary": "Read conversation messages for an agent session",
         "parameters": [
-          { "$ref": "#/components/parameters/provider" },
-          { "$ref": "#/components/parameters/sessionId" }
+          {
+            "$ref": "#/components/parameters/provider"
+          },
+          {
+            "$ref": "#/components/parameters/sessionId"
+          }
         ],
         "responses": {
-          "200": { "description": "OK" },
-          "400": { "description": "Bad request" },
-          "404": { "description": "Not found" }
+          "200": {
+            "description": "OK"
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "404": {
+            "description": "Not found"
+          }
         }
       }
     },
@@ -76,23 +106,39 @@
       "post": {
         "summary": "Restore a provider session into a new PTY",
         "parameters": [
-          { "$ref": "#/components/parameters/provider" },
-          { "$ref": "#/components/parameters/sessionId" }
+          {
+            "$ref": "#/components/parameters/provider"
+          },
+          {
+            "$ref": "#/components/parameters/sessionId"
+          }
         ],
         "requestBody": {
           "required": false,
           "content": {
             "application/json": {
-              "schema": { "type": "object" }
+              "schema": {
+                "type": "object"
+              }
             }
           }
         },
         "responses": {
-          "200": { "description": "Restored" },
-          "400": { "description": "Bad request" },
-          "404": { "description": "Not found" },
-          "409": { "description": "Conflict" },
-          "500": { "description": "Server error" }
+          "200": {
+            "description": "Restored"
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "500": {
+            "description": "Server error"
+          }
         }
       }
     },
@@ -104,12 +150,18 @@
             "name": "projectRoot",
             "in": "query",
             "required": false,
-            "schema": { "type": "string" }
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
-          "200": { "description": "OK" },
-          "400": { "description": "Bad request" }
+          "200": {
+            "description": "OK"
+          },
+          "400": {
+            "description": "Bad request"
+          }
         }
       }
     },
@@ -121,11 +173,15 @@
             "name": "projectRoot",
             "in": "query",
             "required": false,
-            "schema": { "type": "string" }
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
-          "200": { "description": "OK" }
+          "200": {
+            "description": "OK"
+          }
         }
       }
     },
@@ -137,12 +193,18 @@
             "name": "path",
             "in": "query",
             "required": true,
-            "schema": { "type": "string" }
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
-          "200": { "description": "OK" },
-          "400": { "description": "Bad request" }
+          "200": {
+            "description": "OK"
+          },
+          "400": {
+            "description": "Bad request"
+          }
         }
       }
     },
@@ -150,7 +212,9 @@
       "get": {
         "summary": "Load input history",
         "responses": {
-          "200": { "description": "OK" }
+          "200": {
+            "description": "OK"
+          }
         }
       }
     },
@@ -158,7 +222,9 @@
       "get": {
         "summary": "Load launch preferences",
         "responses": {
-          "200": { "description": "OK" }
+          "200": {
+            "description": "OK"
+          }
         }
       },
       "put": {
@@ -167,12 +233,16 @@
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "type": "object" }
+              "schema": {
+                "type": "object"
+              }
             }
           }
         },
         "responses": {
-          "200": { "description": "Saved" }
+          "200": {
+            "description": "Saved"
+          }
         }
       }
     },
@@ -180,7 +250,9 @@
       "get": {
         "summary": "List PTYs",
         "responses": {
-          "200": { "description": "OK" }
+          "200": {
+            "description": "OK"
+          }
         }
       }
     },
@@ -188,18 +260,24 @@
       "put": {
         "summary": "Save input history for a PTY",
         "parameters": [
-          { "$ref": "#/components/parameters/ptyId" }
+          {
+            "$ref": "#/components/parameters/ptyId"
+          }
         ],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "type": "object" }
+              "schema": {
+                "type": "object"
+              }
             }
           }
         },
         "responses": {
-          "200": { "description": "Saved" }
+          "200": {
+            "description": "Saved"
+          }
         }
       }
     },
@@ -207,11 +285,17 @@
       "post": {
         "summary": "Kill a PTY",
         "parameters": [
-          { "$ref": "#/components/parameters/ptyId" }
+          {
+            "$ref": "#/components/parameters/ptyId"
+          }
         ],
         "responses": {
-          "200": { "description": "Killed" },
-          "404": { "description": "Not found" }
+          "200": {
+            "description": "Killed"
+          },
+          "404": {
+            "description": "Not found"
+          }
         }
       }
     },
@@ -219,20 +303,30 @@
       "put": {
         "summary": "Rename a PTY session",
         "parameters": [
-          { "$ref": "#/components/parameters/ptyId" }
+          {
+            "$ref": "#/components/parameters/ptyId"
+          }
         ],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "type": "object" }
+              "schema": {
+                "type": "object"
+              }
             }
           }
         },
         "responses": {
-          "200": { "description": "Renamed" },
-          "400": { "description": "Bad request" },
-          "404": { "description": "Not found" }
+          "200": {
+            "description": "Renamed"
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "404": {
+            "description": "Not found"
+          }
         }
       }
     },
@@ -240,13 +334,23 @@
       "post": {
         "summary": "Open a PTY worktree in Emacs branch-review",
         "parameters": [
-          { "$ref": "#/components/parameters/ptyId" }
+          {
+            "$ref": "#/components/parameters/ptyId"
+          }
         ],
         "responses": {
-          "200": { "description": "Opened" },
-          "400": { "description": "Bad request" },
-          "404": { "description": "Running PTY not found" },
-          "500": { "description": "Emacs open failed" }
+          "200": {
+            "description": "Opened"
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "404": {
+            "description": "Running PTY not found"
+          },
+          "500": {
+            "description": "Emacs open failed"
+          }
         }
       }
     },
@@ -254,13 +358,23 @@
       "post": {
         "summary": "Open a PTY worktree in Emacs Magit",
         "parameters": [
-          { "$ref": "#/components/parameters/ptyId" }
+          {
+            "$ref": "#/components/parameters/ptyId"
+          }
         ],
         "responses": {
-          "200": { "description": "Opened" },
-          "400": { "description": "Bad request" },
-          "404": { "description": "Running PTY not found" },
-          "500": { "description": "Emacs open failed" }
+          "200": {
+            "description": "Opened"
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "404": {
+            "description": "Running PTY not found"
+          },
+          "500": {
+            "description": "Emacs open failed"
+          }
         }
       }
     },
@@ -268,11 +382,17 @@
       "post": {
         "summary": "Legacy runtime resume endpoint",
         "parameters": [
-          { "$ref": "#/components/parameters/ptyId" }
+          {
+            "$ref": "#/components/parameters/ptyId"
+          }
         ],
         "responses": {
-          "200": { "description": "Reused" },
-          "410": { "description": "Deprecated resume path" }
+          "200": {
+            "description": "Reused"
+          },
+          "410": {
+            "description": "Deprecated resume path"
+          }
         }
       }
     },
@@ -280,30 +400,46 @@
       "post": {
         "summary": "Assign a task to a PTY",
         "parameters": [
-          { "$ref": "#/components/parameters/ptyId" }
+          {
+            "$ref": "#/components/parameters/ptyId"
+          }
         ],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "type": "object" }
+              "schema": {
+                "type": "object"
+              }
             }
           }
         },
         "responses": {
-          "200": { "description": "Assigned" },
-          "400": { "description": "Bad request" },
-          "404": { "description": "Not found" }
+          "200": {
+            "description": "Assigned"
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "404": {
+            "description": "Not found"
+          }
         }
       },
       "delete": {
         "summary": "Clear PTY task assignment",
         "parameters": [
-          { "$ref": "#/components/parameters/ptyId" }
+          {
+            "$ref": "#/components/parameters/ptyId"
+          }
         ],
         "responses": {
-          "200": { "description": "Cleared" },
-          "404": { "description": "Not found" }
+          "200": {
+            "description": "Cleared"
+          },
+          "404": {
+            "description": "Not found"
+          }
         }
       }
     },
@@ -314,15 +450,25 @@
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "type": "object" }
+              "schema": {
+                "type": "object"
+              }
             }
           }
         },
         "responses": {
-          "200": { "description": "Attached" },
-          "400": { "description": "Bad request" },
-          "404": { "description": "Not found" },
-          "409": { "description": "Conflict" }
+          "200": {
+            "description": "Attached"
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "409": {
+            "description": "Conflict"
+          }
         }
       }
     },
@@ -333,13 +479,19 @@
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "type": "object" }
+              "schema": {
+                "type": "object"
+              }
             }
           }
         },
         "responses": {
-          "200": { "description": "Launched" },
-          "400": { "description": "Bad request" }
+          "200": {
+            "description": "Launched"
+          },
+          "400": {
+            "description": "Bad request"
+          }
         }
       }
     },
@@ -347,8 +499,12 @@
       "post": {
         "summary": "Spawn shell PTY",
         "responses": {
-          "200": { "description": "Spawned" },
-          "400": { "description": "Bad request" }
+          "200": {
+            "description": "Spawned"
+          },
+          "400": {
+            "description": "Bad request"
+          }
         }
       }
     },
@@ -360,17 +516,23 @@
             "name": "ptyId",
             "in": "query",
             "required": false,
-            "schema": { "type": "string" }
+            "schema": {
+              "type": "string"
+            }
           },
           {
             "name": "limit",
             "in": "query",
             "required": false,
-            "schema": { "type": "integer" }
+            "schema": {
+              "type": "integer"
+            }
           }
         ],
         "responses": {
-          "200": { "description": "OK" }
+          "200": {
+            "description": "OK"
+          }
         }
       }
     },
@@ -381,14 +543,22 @@
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "type": "object" }
+              "schema": {
+                "type": "object"
+              }
             }
           }
         },
         "responses": {
-          "200": { "description": "Reported" },
-          "400": { "description": "Bad request" },
-          "404": { "description": "Running PTY not found" }
+          "200": {
+            "description": "Reported"
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "404": {
+            "description": "Running PTY not found"
+          }
         }
       }
     },
@@ -396,7 +566,9 @@
       "get": {
         "summary": "Load settings",
         "responses": {
-          "200": { "description": "OK" }
+          "200": {
+            "description": "OK"
+          }
         }
       },
       "put": {
@@ -405,12 +577,16 @@
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "type": "object" }
+              "schema": {
+                "type": "object"
+              }
             }
           }
         },
         "responses": {
-          "200": { "description": "Saved" }
+          "200": {
+            "description": "Saved"
+          }
         }
       }
     },
@@ -418,8 +594,12 @@
       "get": {
         "summary": "List tasks",
         "responses": {
-          "200": { "description": "OK" },
-          "404": { "description": "Provider not configured" }
+          "200": {
+            "description": "OK"
+          },
+          "404": {
+            "description": "Provider not configured"
+          }
         }
       },
       "post": {
@@ -428,14 +608,22 @@
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "type": "object" }
+              "schema": {
+                "type": "object"
+              }
             }
           }
         },
         "responses": {
-          "200": { "description": "Created" },
-          "400": { "description": "Bad request" },
-          "404": { "description": "Provider not configured" }
+          "200": {
+            "description": "Created"
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "404": {
+            "description": "Provider not configured"
+          }
         }
       }
     },
@@ -443,39 +631,59 @@
       "get": {
         "summary": "Get task",
         "parameters": [
-          { "$ref": "#/components/parameters/taskId" }
+          {
+            "$ref": "#/components/parameters/taskId"
+          }
         ],
         "responses": {
-          "200": { "description": "OK" },
-          "404": { "description": "Not found or provider missing" }
+          "200": {
+            "description": "OK"
+          },
+          "404": {
+            "description": "Not found or provider missing"
+          }
         }
       },
       "patch": {
         "summary": "Update task",
         "parameters": [
-          { "$ref": "#/components/parameters/taskId" }
+          {
+            "$ref": "#/components/parameters/taskId"
+          }
         ],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "type": "object" }
+              "schema": {
+                "type": "object"
+              }
             }
           }
         },
         "responses": {
-          "200": { "description": "Updated" },
-          "404": { "description": "Provider not configured" }
+          "200": {
+            "description": "Updated"
+          },
+          "404": {
+            "description": "Provider not configured"
+          }
         }
       },
       "delete": {
         "summary": "Delete task",
         "parameters": [
-          { "$ref": "#/components/parameters/taskId" }
+          {
+            "$ref": "#/components/parameters/taskId"
+          }
         ],
         "responses": {
-          "200": { "description": "Deleted" },
-          "404": { "description": "Provider not configured" }
+          "200": {
+            "description": "Deleted"
+          },
+          "404": {
+            "description": "Provider not configured"
+          }
         }
       }
     },
@@ -483,20 +691,30 @@
       "post": {
         "summary": "Transition task status",
         "parameters": [
-          { "$ref": "#/components/parameters/taskId" }
+          {
+            "$ref": "#/components/parameters/taskId"
+          }
         ],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "type": "object" }
+              "schema": {
+                "type": "object"
+              }
             }
           }
         },
         "responses": {
-          "200": { "description": "Transitioned" },
-          "400": { "description": "Bad request" },
-          "404": { "description": "Provider not configured" }
+          "200": {
+            "description": "Transitioned"
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "404": {
+            "description": "Provider not configured"
+          }
         }
       }
     },
@@ -504,7 +722,9 @@
       "get": {
         "summary": "Get task provider config",
         "responses": {
-          "200": { "description": "OK" }
+          "200": {
+            "description": "OK"
+          }
         }
       },
       "put": {
@@ -513,19 +733,27 @@
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "type": "object" }
+              "schema": {
+                "type": "object"
+              }
             }
           }
         },
         "responses": {
-          "200": { "description": "Configured" },
-          "400": { "description": "Bad request" }
+          "200": {
+            "description": "Configured"
+          },
+          "400": {
+            "description": "Bad request"
+          }
         }
       },
       "delete": {
         "summary": "Clear task provider config",
         "responses": {
-          "200": { "description": "Cleared" }
+          "200": {
+            "description": "Cleared"
+          }
         }
       }
     },
@@ -536,13 +764,19 @@
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "type": "object" }
+              "schema": {
+                "type": "object"
+              }
             }
           }
         },
         "responses": {
-          "200": { "description": "Verified" },
-          "400": { "description": "Bad request" }
+          "200": {
+            "description": "Verified"
+          },
+          "400": {
+            "description": "Bad request"
+          }
         }
       }
     },
@@ -554,7 +788,9 @@
             "name": "name",
             "in": "query",
             "required": true,
-            "schema": { "type": "string" }
+            "schema": {
+              "type": "string"
+            }
           },
           {
             "name": "server",
@@ -562,14 +798,23 @@
             "required": true,
             "schema": {
               "type": "string",
-              "enum": ["agmux", "default"]
+              "enum": [
+                "agmux",
+                "default"
+              ]
             }
           }
         ],
         "responses": {
-          "200": { "description": "OK" },
-          "400": { "description": "Bad request" },
-          "404": { "description": "Not found" }
+          "200": {
+            "description": "OK"
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "404": {
+            "description": "Not found"
+          }
         }
       }
     },
@@ -577,7 +822,9 @@
       "get": {
         "summary": "List tmux sessions",
         "responses": {
-          "200": { "description": "OK" }
+          "200": {
+            "description": "OK"
+          }
         }
       }
     },
@@ -585,7 +832,9 @@
       "post": {
         "summary": "Reload triggers from trigger module file",
         "responses": {
-          "200": { "description": "Reloaded" }
+          "200": {
+            "description": "Reloaded"
+          }
         }
       }
     },
@@ -597,11 +846,28 @@
             "name": "projectRoot",
             "in": "query",
             "required": false,
-            "schema": { "type": "string" }
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "full",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "1",
+                "true"
+              ]
+            },
+            "description": "Return annotated rows, orphan branches, and tombstones"
           }
         ],
         "responses": {
-          "200": { "description": "OK" }
+          "200": {
+            "description": "OK"
+          }
         }
       },
       "delete": {
@@ -610,14 +876,22 @@
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "type": "object" }
+              "schema": {
+                "type": "object"
+              }
             }
           }
         },
         "responses": {
-          "200": { "description": "Removed" },
-          "400": { "description": "Bad request" },
-          "500": { "description": "Server error" }
+          "200": {
+            "description": "Removed"
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "500": {
+            "description": "Server error"
+          }
         }
       }
     },
@@ -629,14 +903,204 @@
             "name": "path",
             "in": "query",
             "required": true,
-            "schema": { "type": "string" }
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
-          "200": { "description": "OK" },
-          "400": { "description": "Bad request" },
-          "500": { "description": "Server error" }
+          "200": {
+            "description": "OK"
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "500": {
+            "description": "Server error"
+          }
         }
+      }
+    },
+    "/api/worktrees/scan": {
+      "post": {
+        "summary": "Scan a repo's worktrees (optionally fetch --prune and compute sizes)",
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "500": {
+            "description": "Server error"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/worktrees/create": {
+      "post": {
+        "summary": "Create a worktree with purpose/ticket metadata",
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "500": {
+            "description": "Server error"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/worktrees/reap": {
+      "post": {
+        "summary": "Reap a worktree through the guarded funnel (salvage, attic tag, branch policy)",
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "500": {
+            "description": "Server error"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/branches/drop": {
+      "post": {
+        "summary": "Attic-tag and delete a branch that has no worktree",
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "500": {
+            "description": "Server error"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/worktrees/move": {
+      "post": {
+        "summary": "Move a worktree to its canonical template path",
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "500": {
+            "description": "Server error"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/worktrees/label": {
+      "patch": {
+        "summary": "Set or clear a worktree's label",
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "500": {
+            "description": "Server error"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/worktrees/context": {
+      "get": {
+        "summary": "Session history and tombstone for a worktree path",
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "500": {
+            "description": "Server error"
+          }
+        },
+        "parameters": [
+          {
+            "name": "path",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
       }
     }
   },
@@ -646,25 +1110,33 @@
         "name": "id",
         "in": "path",
         "required": true,
-        "schema": { "type": "string" }
+        "schema": {
+          "type": "string"
+        }
       },
       "taskId": {
         "name": "id",
         "in": "path",
         "required": true,
-        "schema": { "type": "string" }
+        "schema": {
+          "type": "string"
+        }
       },
       "provider": {
         "name": "provider",
         "in": "path",
         "required": true,
-        "schema": { "type": "string" }
+        "schema": {
+          "type": "string"
+        }
       },
       "sessionId": {
         "name": "sessionId",
         "in": "path",
         "required": true,
-        "schema": { "type": "string" }
+        "schema": {
+          "type": "string"
+        }
       }
     }
   }

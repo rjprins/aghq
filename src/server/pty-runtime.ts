@@ -67,6 +67,9 @@ export function createRuntime(deps: RuntimeDeps) {
     if (pr) prStateByKey.set(key, pr);
     else prStateByKey.delete(key);
   }
+  function getPrStateForBranch(projectRoot: string, branch: string): PrSummary | null {
+    return prStateByKey.get(prKey(projectRoot, branch)) ?? null;
+  }
 
   const readinessTrace: ReadinessTraceEntry[] = [];
   let readinessTraceSeq = 0;
@@ -496,5 +499,6 @@ export function createRuntime(deps: RuntimeDeps) {
     trackLinkedSession,
     getReadinessTrace,
     setPrStateForBranch,
+    getPrStateForBranch,
   };
 }

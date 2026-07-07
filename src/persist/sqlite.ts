@@ -51,6 +51,85 @@ export type AssignTaskToSessionInput = SessionTaskRef & {
   assignedAt?: number;
 };
 
+/** Raw `worktrees` row; columns stay snake_case, JSON columns stay as text. */
+export type WorktreeRow = {
+  id: number;
+  repo_root: string;
+  path: string;
+  prior_paths: string | null;
+  branch: string | null;
+  label: string | null;
+  ticket_id: string | null;
+  first_prompt: string | null;
+  pr_id: string | null;
+  pr_title: string | null;
+  origin: string | null;
+  state: string;
+  state_detail: string | null;
+  first_seen_at: number;
+  scanned_at: number | null;
+  reaped_at: number | null;
+  reap_evidence: string | null;
+  salvage_path: string | null;
+  attic_tag: string | null;
+};
+
+export type WorktreeObservationInput = {
+  repoRoot: string;
+  path: string;
+  branch: string | null;
+  state: string;
+  stateDetail: unknown;
+  scannedAt: number;
+  origin?: string | null;
+};
+
+export type WorktreeMetaPatch = {
+  label?: string | null;
+  ticketId?: string | null;
+  firstPrompt?: string | null;
+  prId?: string | null;
+  prTitle?: string | null;
+};
+
+export type WorktreePrProof = {
+  prId: string;
+  prTitle: string;
+  prStatus: string;
+  mergeSourceSha: string | null;
+  prCompletedAt: number | null;
+};
+
+export type WorktreeTombstoneInput = {
+  state: string;
+  reapEvidence: string | null;
+  salvagePath: string | null;
+  atticTag: string | null;
+};
+
+export type WorktreeBackfillTombstoneInput = {
+  repoRoot: string;
+  path: string;
+  branch: string | null;
+  label?: string | null;
+  firstPrompt?: string | null;
+  reapEvidence: string | null;
+  origin: "backfill";
+  reapedAt: number;
+};
+
+export type AgentSessionContext = {
+  sessionCount: number;
+  earliestName: string | null;
+  earliestCreatedAt: number | null;
+  lastSeenAt: number | null;
+};
+
+// Single source for the worktrees select list (queried in several methods).
+const WORKTREE_COLUMNS =
+  "id, repo_root, path, prior_paths, branch, label, ticket_id, first_prompt, pr_id, pr_title, " +
+  "origin, state, state_detail, first_seen_at, scanned_at, reaped_at, reap_evidence, salvage_path, attic_tag";
+
 export class SqliteStore {
   private db: any;
 
@@ -143,6 +222,38 @@ export class SqliteStore {
       create unique index if not exists idx_session_task_assignments_one_active_per_session
         on session_task_assignments(session_id)
         where active = 1;
+
+      create table if not exists worktrees (
+        id integer primary key autoincrement,
+        repo_root text not null,
+        path text not null,
+        prior_paths text,
+        branch text,
+        label text,
+        ticket_id text,
+        first_prompt text,
+        pr_id text,
+        pr_title text,
+        origin text,
+        state text not null default 'unknown',
+        state_detail text,
+        first_seen_at integer not null,
+        scanned_at integer,
+        reaped_at integer,
+        reap_evidence text,
+        salvage_path text,
+        attic_tag text
+      );
+
+      create unique index if not exists idx_worktrees_live
+        on worktrees(repo_root, path)
+        where reaped_at is null;
+
+      create index if not exists idx_worktrees_state
+        on worktrees(repo_root, state);
+
+      create index if not exists idx_agent_sessions_cwd
+        on agent_sessions(cwd);
     `);
 
     // Backwards-compatible column adds for existing DBs.
@@ -624,6 +735,326 @@ export class SqliteStore {
       last_seen_at: record.lastSeenAt,
       last_restored_at: record.lastRestoredAt,
     });
+  }
+
+  /** Insert a live row (first_seen_at=now) or refresh the existing live row. Returns the row id. */
+  upsertWorktreeObservation(input: WorktreeObservationInput): number {
+    this.db.prepare(`
+      insert into worktrees (repo_root, path, branch, origin, state, state_detail, first_seen_at, scanned_at)
+      values (@repo_root, @path, @branch, @origin, @state, @state_detail, @first_seen_at, @scanned_at)
+      on conflict(repo_root, path) where reaped_at is null do update set
+        branch=excluded.branch,
+        state=excluded.state,
+        state_detail=excluded.state_detail,
+        scanned_at=excluded.scanned_at,
+        origin=coalesce(worktrees.origin, excluded.origin);
+    `).run({
+      repo_root: input.repoRoot,
+      path: input.path,
+      branch: input.branch,
+      origin: input.origin ?? null,
+      state: input.state,
+      state_detail: JSON.stringify(input.stateDetail ?? null),
+      first_seen_at: Date.now(),
+      scanned_at: input.scannedAt,
+    });
+
+    const row = this.db.prepare(`
+      select id from worktrees where repo_root = ? and path = ? and reaped_at is null;
+    `).get(input.repoRoot, input.path) as { id: number };
+    return row.id;
+  }
+
+  /** Partial meta update of the live row; only provided keys are written. */
+  setWorktreeMeta(repoRoot: string, path: string, meta: WorktreeMetaPatch): void {
+    const sets: string[] = [];
+    const params: Record<string, unknown> = { repo_root: repoRoot, path };
+    if (meta.label !== undefined) {
+      sets.push("label=@label");
+      params.label = meta.label;
+    }
+    if (meta.ticketId !== undefined) {
+      sets.push("ticket_id=@ticket_id");
+      params.ticket_id = meta.ticketId;
+    }
+    if (meta.firstPrompt !== undefined) {
+      sets.push("first_prompt=@first_prompt");
+      params.first_prompt = meta.firstPrompt;
+    }
+    if (meta.prId !== undefined) {
+      sets.push("pr_id=@pr_id");
+      params.pr_id = meta.prId;
+    }
+    if (meta.prTitle !== undefined) {
+      sets.push("pr_title=@pr_title");
+      params.pr_title = meta.prTitle;
+    }
+    if (sets.length === 0) return;
+
+    this.db.prepare(`
+      update worktrees
+      set ${sets.join(", ")}
+      where repo_root = @repo_root and path = @path and reaped_at is null;
+    `).run(params);
+  }
+
+  /** Record PR proof on live row(s) for a branch; merges keys into the state_detail JSON. */
+  setWorktreePrProofByBranch(repoRoot: string, branch: string, proof: WorktreePrProof): void {
+    const tx = this.db.transaction(() => {
+      const rows = this.db.prepare(`
+        select id, state_detail from worktrees
+        where repo_root = ? and branch = ? and reaped_at is null;
+      `).all(repoRoot, branch) as Array<{ id: number; state_detail: string | null }>;
+
+      const update = this.db.prepare(`
+        update worktrees
+        set pr_id = @pr_id, pr_title = @pr_title, state_detail = @state_detail
+        where id = @id;
+      `);
+
+      for (const row of rows) {
+        let detail: Record<string, unknown> = {};
+        try {
+          const parsed = row.state_detail ? (JSON.parse(row.state_detail) as unknown) : null;
+          if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+            detail = parsed as Record<string, unknown>;
+          }
+        } catch {
+          // corrupt JSON: start fresh rather than fail the proof write
+        }
+        detail.prStatus = proof.prStatus;
+        detail.mergeSourceSha = proof.mergeSourceSha;
+        detail.prCompletedAt = proof.prCompletedAt;
+        update.run({
+          id: row.id,
+          pr_id: proof.prId,
+          pr_title: proof.prTitle,
+          state_detail: JSON.stringify(detail),
+        });
+      }
+    });
+    tx();
+  }
+
+  /** Mark the live row at path as reaped. */
+  tombstoneWorktree(repoRoot: string, path: string, t: WorktreeTombstoneInput): void {
+    this.db.prepare(`
+      update worktrees
+      set reaped_at = @reaped_at,
+          state = @state,
+          reap_evidence = @reap_evidence,
+          salvage_path = @salvage_path,
+          attic_tag = @attic_tag
+      where repo_root = @repo_root and path = @path and reaped_at is null;
+    `).run({
+      repo_root: repoRoot,
+      path,
+      reaped_at: Date.now(),
+      state: t.state,
+      reap_evidence: t.reapEvidence,
+      salvage_path: t.salvagePath,
+      attic_tag: t.atticTag,
+    });
+  }
+
+  /** Rename a live row's path, remembering the old path. Merges into an existing live row at newPath. */
+  moveWorktreePath(repoRoot: string, oldPath: string, newPath: string): void {
+    const tx = this.db.transaction(() => {
+      const moved = this.getLiveWorktreeRow(repoRoot, oldPath);
+      if (!moved) return;
+      const target = this.getLiveWorktreeRow(repoRoot, newPath);
+
+      const priorPaths = [
+        ...this.parsePriorPaths(moved.prior_paths),
+        ...this.parsePriorPaths(target?.prior_paths ?? null),
+        oldPath,
+      ].filter((p, i, arr) => p !== newPath && arr.indexOf(p) === i);
+
+      if (target) {
+        // Duplicate live rows for one worktree: keep the moved row's identity,
+        // absorb the target's meta, keep the oldest first_seen_at.
+        this.db.prepare(`delete from worktrees where id = ?;`).run(target.id);
+        this.db.prepare(`
+          update worktrees
+          set path = @path,
+              prior_paths = @prior_paths,
+              first_seen_at = @first_seen_at,
+              label = @label,
+              ticket_id = @ticket_id,
+              first_prompt = @first_prompt
+          where id = @id;
+        `).run({
+          id: moved.id,
+          path: newPath,
+          prior_paths: JSON.stringify(priorPaths),
+          first_seen_at: Math.min(moved.first_seen_at, target.first_seen_at),
+          label: moved.label ?? target.label,
+          ticket_id: moved.ticket_id ?? target.ticket_id,
+          first_prompt: moved.first_prompt ?? target.first_prompt,
+        });
+      } else {
+        this.db.prepare(`
+          update worktrees set path = @path, prior_paths = @prior_paths where id = @id;
+        `).run({
+          id: moved.id,
+          path: newPath,
+          prior_paths: JSON.stringify(priorPaths),
+        });
+      }
+    });
+    tx();
+  }
+
+  listWorktreeRows(repoRoot: string, opts?: { includeTombstones?: boolean }): WorktreeRow[] {
+    const tombstoneFilter = opts?.includeTombstones ? "" : "and reaped_at is null";
+    return this.db.prepare(`
+      select ${WORKTREE_COLUMNS}
+      from worktrees
+      where repo_root = ? ${tombstoneFilter}
+      order by first_seen_at asc, id asc;
+    `).all(repoRoot) as WorktreeRow[];
+  }
+
+  getWorktreeRowByPath(repoRoot: string, path: string): WorktreeRow | undefined {
+    return this.getLiveWorktreeRow(repoRoot, path);
+  }
+
+  /** Backfill a tombstone for a path with no row at all. Returns true when inserted. */
+  insertWorktreeTombstoneIfMissing(input: WorktreeBackfillTombstoneInput): boolean {
+    const exists = this.db.prepare(`
+      select 1 from worktrees where repo_root = ? and path = ? limit 1;
+    `).get(input.repoRoot, input.path) as { 1: number } | undefined;
+    if (exists) return false;
+
+    this.db.prepare(`
+      insert into worktrees (repo_root, path, branch, label, first_prompt, origin, first_seen_at, reaped_at, reap_evidence)
+      values (@repo_root, @path, @branch, @label, @first_prompt, @origin, @first_seen_at, @reaped_at, @reap_evidence);
+    `).run({
+      repo_root: input.repoRoot,
+      path: input.path,
+      branch: input.branch,
+      label: input.label ?? null,
+      first_prompt: input.firstPrompt ?? null,
+      origin: input.origin,
+      first_seen_at: input.reapedAt,
+      reaped_at: input.reapedAt,
+      reap_evidence: input.reapEvidence,
+    });
+    return true;
+  }
+
+  /** Aggregate agent_sessions whose cwd is at, or nested under, any candidate path. */
+  agentSessionContextForPath(paths: string[]): AgentSessionContext {
+    const empty: AgentSessionContext = {
+      sessionCount: 0,
+      earliestName: null,
+      earliestCreatedAt: null,
+      lastSeenAt: null,
+    };
+    const candidates = paths.filter((p) => typeof p === "string" && p.length > 0);
+    if (candidates.length === 0) return empty;
+
+    const clause = candidates.map(() => "(cwd = ? or cwd like ? || '/%')").join(" or ");
+    const params: string[] = [];
+    for (const p of candidates) params.push(p, p);
+
+    const agg = this.db.prepare(`
+      select count(*) as session_count, min(created_at) as earliest_created_at, max(last_seen_at) as last_seen_at
+      from agent_sessions
+      where ${clause};
+    `).get(...params) as { session_count: number; earliest_created_at: number | null; last_seen_at: number | null };
+    if (!agg || agg.session_count === 0) return empty;
+
+    const earliest = this.db.prepare(`
+      select name from agent_sessions
+      where ${clause}
+      order by created_at asc
+      limit 1;
+    `).get(...params) as { name: string } | undefined;
+
+    return {
+      sessionCount: agg.session_count,
+      earliestName: earliest?.name ?? null,
+      earliestCreatedAt: agg.earliest_created_at,
+      lastSeenAt: agg.last_seen_at,
+    };
+  }
+
+  /** Agent sessions whose cwd is at, or nested under, the given path (newest first). */
+  listAgentSessionsByCwdPrefix(prefix: string, limit = 50): Array<{
+    provider: string;
+    providerSessionId: string;
+    name: string;
+    createdAt: number;
+    lastSeenAt: number;
+  }> {
+    const rows = this.db.prepare(`
+      select provider, provider_session_id, name, created_at, last_seen_at
+      from agent_sessions
+      where cwd = ? or cwd like ? || '/%'
+      order by last_seen_at desc
+      limit ?;
+    `).all(prefix, prefix, limit) as Array<{
+      provider: string;
+      provider_session_id: string;
+      name: string;
+      created_at: number;
+      last_seen_at: number;
+    }>;
+    return rows.map((r) => ({
+      provider: r.provider,
+      providerSessionId: r.provider_session_id,
+      name: r.name,
+      createdAt: r.created_at,
+      lastSeenAt: r.last_seen_at,
+    }));
+  }
+
+  /** Distinct repo roots that have any worktree row (live or tombstoned). */
+  listWorktreeRepoRoots(): string[] {
+    const rows = this.db.prepare(`select distinct repo_root from worktrees;`).all() as Array<{ repo_root: string }>;
+    return rows.map((r) => r.repo_root);
+  }
+
+  /** Distinct agent-session cwds with earliest-session context (for tombstone backfill). */
+  listAgentSessionCwds(): Array<{ cwd: string; earliestName: string | null; earliestCreatedAt: number | null; lastSeenAt: number | null }> {
+    const rows = this.db.prepare(`
+      select cwd, count(*) as session_count, min(created_at) as earliest_created_at, max(last_seen_at) as last_seen_at
+      from agent_sessions
+      where cwd is not null and cwd != ''
+      group by cwd;
+    `).all() as Array<{ cwd: string; session_count: number; earliest_created_at: number | null; last_seen_at: number | null }>;
+    const earliestStmt = this.db.prepare(`
+      select name from agent_sessions where cwd = ? order by created_at asc limit 1;
+    `);
+    return rows.map((r) => {
+      const earliest = earliestStmt.get(r.cwd) as { name: string } | undefined;
+      return {
+        cwd: r.cwd,
+        earliestName: earliest?.name ?? null,
+        earliestCreatedAt: r.earliest_created_at,
+        lastSeenAt: r.last_seen_at,
+      };
+    });
+  }
+
+  private getLiveWorktreeRow(repoRoot: string, path: string): WorktreeRow | undefined {
+    return this.db.prepare(`
+      select ${WORKTREE_COLUMNS}
+      from worktrees
+      where repo_root = ? and path = ? and reaped_at is null;
+    `).get(repoRoot, path) as WorktreeRow | undefined;
+  }
+
+  private parsePriorPaths(raw: string | null): string[] {
+    if (!raw) return [];
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      if (!Array.isArray(parsed)) return [];
+      return parsed.filter((p): p is string => typeof p === "string");
+    } catch {
+      return [];
+    }
   }
 
   private parseAgentCwdSource(value: string | null): AgentSessionCwdSource {

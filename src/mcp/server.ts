@@ -6,6 +6,8 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import WebSocket from "ws";
 import * as z from "zod/v4";
 
+import type { WorktreeAnnotated, WorktreeOverlays, WorktreesFullResponse } from "../shared/worktrees.js";
+
 type JsonObject = Record<string, unknown>;
 
 const REQUEST_TIMEOUT_MS = 15_000;
@@ -72,6 +74,38 @@ async function requestJson(path: string, init: RequestInit = {}): Promise<unknow
   } finally {
     clearTimeout(timer);
   }
+}
+
+const WORKTREE_LIST_CAP = 60;
+
+function normalizeWorktreePath(p: string): string {
+  return p.length > 1 ? p.replace(/\/+$/, "") : p;
+}
+
+function fetchFullWorktrees(projectRoot?: string): Promise<WorktreesFullResponse> {
+  const params = new URLSearchParams({ full: "1" });
+  if (projectRoot) params.set("projectRoot", projectRoot);
+  return requestJson(`/api/worktrees?${params.toString()}`) as Promise<WorktreesFullResponse>;
+}
+
+/** Only flags that carry signal; false/null overlays are noise for an agent caller. */
+function compactOverlays(overlays: WorktreeOverlays): JsonObject {
+  const out: JsonObject = {};
+  for (const [key, value] of Object.entries(overlays)) {
+    if (value === true || (typeof value === "number" && value > 0)) out[key] = value;
+  }
+  return out;
+}
+
+function compactWorktreeRow(row: WorktreeAnnotated): JsonObject {
+  const { overlays, ...rest } = row;
+  const out: JsonObject = {};
+  for (const [key, value] of Object.entries(rest)) {
+    if (value !== null && value !== undefined) out[key] = value;
+  }
+  const flags = compactOverlays(overlays);
+  if (Object.keys(flags).length > 0) out.overlays = flags;
+  return out;
 }
 
 function asJsonToolResult(value: unknown) {
@@ -196,6 +230,8 @@ server.registerTool("launch_agent", {
     name: z.string().optional().describe("Display name for the new session."),
     initialInput: z.string().optional().describe("First prompt sent to the agent on launch, e.g. a slash command to run."),
     flags: z.record(z.string(), z.union([z.string(), z.boolean()])).optional().describe("Agent CLI flags."),
+    purpose: z.string().optional().describe("One-line reason for this session/worktree, recorded with the worktree when one is created."),
+    ticket: z.string().optional().describe("Ticket/issue ID to associate with the session/worktree."),
   },
 }, async (args) => {
   return asJsonToolResult(await requestJson("/api/ptys/launch", {
@@ -289,6 +325,115 @@ server.registerTool("restore_agent_session", {
       body: cwd ? JSON.stringify({ cwd }) : JSON.stringify({}),
     },
   ));
+});
+
+server.registerTool("worktree_list", {
+  title: "List worktrees",
+  description: "List a repo's git worktrees with computed lifecycle state (active/open/merged/local-only/review/stale/...), reap class, and human-readable evidence. Use this before creating a worktree, before reaping, or to pick an existing worktree to resume work in.",
+  inputSchema: {
+    projectRoot: z.string().optional().describe("Absolute path of the repo (or any path inside it). Omit to use the agmux default project."),
+    filter: z.string().optional().describe("Case-insensitive substring match over branch, label, ticket, PR title, and first prompt."),
+  },
+}, async ({ projectRoot, filter }) => {
+  const full = await fetchFullWorktrees(projectRoot);
+  let rows = full.worktrees;
+  const needle = filter?.trim().toLowerCase();
+  if (needle) {
+    rows = rows.filter((w) =>
+      [w.branch, w.label, w.ticketId, w.prTitle, w.firstPrompt]
+        .some((v) => v != null && v.toLowerCase().includes(needle)));
+  }
+  const result: JsonObject = {
+    repoRoot: full.repoRoot,
+    defaultBranch: full.defaultBranch,
+    scannedAt: full.scannedAt,
+    worktrees: rows.slice(0, WORKTREE_LIST_CAP).map(compactWorktreeRow),
+    orphanBranchCount: full.orphanBranches.length,
+    tombstoneCount: full.tombstones.length,
+  };
+  if (rows.length > WORKTREE_LIST_CAP) {
+    result.note = `${rows.length - WORKTREE_LIST_CAP} of ${rows.length} rows omitted; narrow with the filter parameter.`;
+  }
+  return asJsonToolResult(result);
+});
+
+server.registerTool("worktree_create", {
+  title: "Create worktree",
+  description: "Create a new git branch + worktree for a task. Use this instead of raw git commands so agmux records why the worktree exists. purpose is required and becomes the branch description.",
+  inputSchema: {
+    projectRoot: z.string().min(1).describe("Absolute path of the repo to create the worktree in."),
+    branch: z.string().optional().describe("Branch name; a verb-noun name is generated when omitted."),
+    baseBranch: z.string().optional().describe("Base branch to fork from; defaults to the repo's default branch."),
+    purpose: z.string().min(1).describe("One-line reason this worktree exists (stored as the branch description)."),
+    ticket: z.string().optional().describe("Ticket/issue ID to associate with the worktree."),
+  },
+}, async (args) => {
+  return asJsonToolResult(await requestJson("/api/worktrees/create", {
+    method: "POST",
+    body: JSON.stringify(args),
+  }));
+});
+
+server.registerTool("worktree_reap", {
+  title: "Reap worktree",
+  description: "Remove a finished worktree. With dryRun:true (the DEFAULT) this returns a proposal only — the row's state, reapClass, and evidence — and deletes nothing. Executing with dryRun:false is DESTRUCTIVE: it removes the worktree directory (uncommitted changes are salvaged to a tarball first) and may attic-tag and delete the branch. Always review the dry-run proposal before executing. Execution is refused when the worktree is not classified as reapable.",
+  inputSchema: {
+    path: z.string().min(1).describe("Absolute path of the worktree to reap."),
+    dryRun: z.boolean().default(true).describe("true (default): return the reap proposal without deleting anything. false: actually reap."),
+    salvage: z.boolean().optional().describe("Tarball uncommitted non-ignored changes before removal. The server forces this on when such dirt exists."),
+    deleteBranch: z.enum(["auto", "never"]).optional().describe("auto (default): attic-tag then delete the branch when merge is proven. never: keep the branch."),
+  },
+}, async ({ path, dryRun, salvage, deleteBranch }) => {
+  const wanted = normalizeWorktreePath(path);
+  const full = await fetchFullWorktrees(path);
+  const row = full.worktrees.find((w) => normalizeWorktreePath(w.path) === wanted);
+  if (!row) {
+    return asJsonToolResult({ ok: false, reason: `no worktree found at ${path} in repo ${full.repoRoot}` });
+  }
+  const proposal: JsonObject = {
+    path: row.path,
+    branch: row.branch,
+    state: row.state,
+    reapClass: row.reapClass,
+    evidence: row.evidence,
+    overlays: compactOverlays(row.overlays),
+  };
+  if (dryRun) {
+    proposal.dryRun = true;
+    proposal.note = row.reapClass === "reap-safe"
+      ? "Safe to reap; call again with dryRun:false to execute."
+      : row.reapClass === "reap-check"
+        ? "Needs review: check the evidence and overlays, then execute with dryRun:false (dirt is salvaged automatically)."
+        : "Not reapable; execution would be refused.";
+    return asJsonToolResult(proposal);
+  }
+  if (row.reapClass == null) {
+    return asJsonToolResult({
+      ok: false,
+      refused: true,
+      reason: `worktree state is "${row.state}" with no reap class; refusing to reap`,
+      ...proposal,
+    });
+  }
+  if (!row.head) {
+    return asJsonToolResult({ ok: false, refused: true, reason: "worktree has no resolvable HEAD; cannot form a safe reap request", ...proposal });
+  }
+  const body: JsonObject = { path: row.path, expectedHead: row.head, salvage, deleteBranch };
+  if (row.statusHash) body.expectedStatusHash = row.statusHash;
+  return asJsonToolResult(await requestJson("/api/worktrees/reap", {
+    method: "POST",
+    body: JSON.stringify(body),
+  }));
+});
+
+server.registerTool("worktree_context", {
+  title: "Worktree context",
+  description: "Get historical context for a worktree path: agent sessions that ran there and any tombstone left by a past reap. Use this to understand what a worktree was for before resuming or reaping it, or to recover salvage info after a reap.",
+  inputSchema: {
+    path: z.string().min(1).describe("Absolute worktree path (a since-removed path also works)."),
+  },
+}, async ({ path }) => {
+  return asJsonToolResult(await requestJson(`/api/worktrees/context?path=${encodeURIComponent(path)}`));
 });
 
 async function main(): Promise<void> {

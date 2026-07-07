@@ -40,6 +40,15 @@ import {
   type CloseWorktreeModalViewModel,
 } from "./close-worktree-modal-view";
 import {
+  renderWorktreesPanel,
+  type WorktreesPanelViewModel,
+} from "./worktrees-panel-view";
+import type {
+  ReapRequest,
+  ReapResult,
+  WorktreesFullResponse,
+} from "../shared/worktrees.js";
+import {
   findContainingWorktree,
   isMainWorktreeForCwd,
   type KnownWorktreeSummary,
@@ -2511,6 +2520,10 @@ type CloseWorktreeModalState = {
   dirty: boolean | null;
   changes: string[];
   closing: boolean;
+  /** Classification evidence from the worktree scan, when available. */
+  evidence: string | null;
+  /** Scan row snapshot used to reap safely (TOCTOU guard). Null → legacy DELETE. */
+  reapRow: { head: string; statusHash: string | null } | null;
 };
 
 let closeWorktreeModalState: CloseWorktreeModalState | null = null;
@@ -2531,6 +2544,7 @@ function renderCloseWorktreeModalState(): void {
       dirty: state.dirty,
       changes: state.changes,
       closing: state.closing,
+      evidence: state.evidence,
     }
     : null;
 
@@ -2550,20 +2564,41 @@ function renderCloseWorktreeModalState(): void {
       if (!closeWorktreeModalState || closeWorktreeModalState.closing) return;
       closeWorktreeModalState.closing = true;
       renderCloseWorktreeModalState();
-      const { ptyId, worktreePath } = closeWorktreeModalState;
+      const { ptyId, worktreePath, reapRow } = closeWorktreeModalState;
       void (async () => {
         await killPtyDirect(ptyId);
-        try {
-          await authFetch("/api/worktrees", {
-            method: "DELETE",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ path: worktreePath }),
-          });
-        } catch {
-          // ignore worktree removal failure
+        const legacyDelete = async () => {
+          try {
+            await authFetch("/api/worktrees", {
+              method: "DELETE",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ path: worktreePath }),
+            });
+          } catch {
+            // ignore worktree removal failure
+          }
+        };
+        if (reapRow) {
+          try {
+            const result = await postWorktreeReap({
+              path: worktreePath,
+              expectedHead: reapRow.head,
+              expectedStatusHash: reapRow.statusHash ?? undefined,
+              salvage: true,
+              deleteBranch: "auto",
+            });
+            // A guard abort is a deliberate refusal: do not force-delete.
+            if (!result.ok) addEvent(`Worktree reap aborted: ${result.reason ?? "unknown reason"}`);
+          } catch {
+            // Reap endpoint unavailable: fall back to the legacy removal.
+            await legacyDelete();
+          }
+        } else {
+          await legacyDelete();
         }
         closeWorktreeModalState = null;
         renderCloseWorktreeModalState();
+        void refreshWorktreeCache().then(() => renderList());
       })();
     },
   });
@@ -2594,8 +2629,24 @@ function openCloseWorktreeModal(ptyId: string): void {
     dirty: null,
     changes: [],
     closing: false,
+    evidence: null,
+    reapRow: null,
   };
   renderCloseWorktreeModalState();
+
+  // Fetch the scan row so removal can go through the guarded reap endpoint.
+  void fetchWorktreesFull(p.projectRoot ?? p.cwd)
+    .then((full) => {
+      if (!closeWorktreeModalState || closeWorktreeModalState.ptyId !== ptyId) return;
+      const row = full.worktrees.find((w) => w.path === worktreePath);
+      if (!row) return;
+      closeWorktreeModalState.evidence = row.evidence || null;
+      closeWorktreeModalState.reapRow = row.head ? { head: row.head, statusHash: row.statusHash ?? null } : null;
+      renderCloseWorktreeModalState();
+    })
+    .catch(() => {
+      // Scan API unavailable: keep the legacy DELETE path.
+    });
 
   // Fetch dirty status
   void authFetch(`/api/worktrees/status?path=${encodeURIComponent(worktreePath)}`)
@@ -2615,6 +2666,346 @@ function openCloseWorktreeModal(ptyId: string): void {
       closeWorktreeModalState.dirty = false;
       renderCloseWorktreeModalState();
     });
+}
+
+// --- Worktrees panel ---
+
+const worktreesPanelRoot = document.createElement("div");
+document.body.appendChild(worktreesPanelRoot);
+
+type WorktreesPanelState = {
+  projectRoot: string;
+  data: WorktreesFullResponse | null;
+  loading: boolean;
+  error: string | null;
+  filter: string;
+  expandedPath: string | null;
+  expandedStacks: Set<string>;
+  orphansExpanded: boolean;
+  tombstonesExpanded: boolean;
+  busyPaths: Set<string>;
+  rowErrors: Map<string, string>;
+  labelDrafts: Map<string, string>;
+  rescanning: boolean;
+  reapAll: { total: number; done: number; freedBytes: number; failures: number } | null;
+};
+
+let worktreesPanelState: WorktreesPanelState | null = null;
+
+async function fetchWorktreesFull(projectRoot: string): Promise<WorktreesFullResponse> {
+  const res = await authFetch(`/api/worktrees?projectRoot=${encodeURIComponent(projectRoot)}&full=1`);
+  if (!res.ok) throw new Error(await readApiError(res));
+  const data = (await res.json()) as WorktreesFullResponse;
+  // Older servers ignore full=1 and return the bare list; treat that as unsupported.
+  if (typeof data.scannedAt !== "number" || !Array.isArray(data.worktrees)) {
+    throw new Error("Server does not support the full worktree scan yet");
+  }
+  return data;
+}
+
+async function postWorktreeReap(body: ReapRequest): Promise<ReapResult> {
+  const res = await authFetch("/api/worktrees/reap", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(await readApiError(res));
+  return (await res.json()) as ReapResult;
+}
+
+function findWorktreePanelRow(path: string) {
+  return worktreesPanelState?.data?.worktrees.find((w) => w.path === path);
+}
+
+async function refetchWorktreesPanel(st: WorktreesPanelState): Promise<void> {
+  try {
+    const data = await fetchWorktreesFull(st.projectRoot);
+    if (worktreesPanelState !== st) return;
+    st.data = data;
+    st.error = null;
+  } catch (err) {
+    if (worktreesPanelState !== st) return;
+    st.error = errorMessage(err);
+  }
+  st.loading = false;
+  renderWorktreesPanelState();
+}
+
+function renderWorktreesPanelState(): void {
+  const state = worktreesPanelState;
+  const model: WorktreesPanelViewModel | null = state
+    ? {
+      projectRoot: state.projectRoot,
+      data: state.data,
+      loading: state.loading,
+      error: state.error,
+      filter: state.filter,
+      expandedPath: state.expandedPath,
+      expandedStacks: state.expandedStacks,
+      orphansExpanded: state.orphansExpanded,
+      tombstonesExpanded: state.tombstonesExpanded,
+      busyPaths: state.busyPaths,
+      rowErrors: state.rowErrors,
+      labelDrafts: state.labelDrafts,
+      rescanning: state.rescanning,
+      reapAll: state.reapAll,
+    }
+    : null;
+
+  renderWorktreesPanel(worktreesPanelRoot, model, {
+    onClose: () => {
+      worktreesPanelState = null;
+      renderWorktreesPanelState();
+    },
+    onFilterChange: (value) => {
+      if (!worktreesPanelState) return;
+      worktreesPanelState.filter = value;
+      renderWorktreesPanelState();
+    },
+    onRescan: () => {
+      const st = worktreesPanelState;
+      if (!st || st.rescanning) return;
+      st.rescanning = true;
+      st.error = null;
+      st.reapAll = null;
+      renderWorktreesPanelState();
+      void authFetch("/api/worktrees/scan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectRoot: st.projectRoot, fetchPrune: true }),
+      })
+        .then(async (res) => {
+          if (!res.ok) throw new Error(await readApiError(res));
+          return (await res.json()) as WorktreesFullResponse;
+        })
+        .then((data) => {
+          if (worktreesPanelState !== st) return;
+          st.data = data;
+          st.loading = false;
+        })
+        .catch((err) => {
+          if (worktreesPanelState !== st) return;
+          st.error = errorMessage(err);
+        })
+        .finally(() => {
+          if (worktreesPanelState !== st) return;
+          st.rescanning = false;
+          renderWorktreesPanelState();
+        });
+    },
+    onReapAllSafe: () => {
+      const st = worktreesPanelState;
+      if (!st || (st.reapAll && st.reapAll.done < st.reapAll.total)) return;
+      const rows = (st.data?.worktrees ?? []).filter((w) => w.reapClass === "reap-safe" && w.head);
+      if (rows.length === 0) return;
+      if (!window.confirm(`Reap ${rows.length} merged worktree(s)? Branches are attic-tagged before deletion.`)) return;
+      st.reapAll = { total: rows.length, done: 0, freedBytes: 0, failures: 0 };
+      renderWorktreesPanelState();
+      void (async () => {
+        for (const row of rows) {
+          if (worktreesPanelState !== st || !st.reapAll) return;
+          try {
+            const result = await postWorktreeReap({
+              path: row.path,
+              expectedHead: row.head!,
+              expectedStatusHash: row.statusHash ?? undefined,
+              salvage: true,
+              deleteBranch: "auto",
+            });
+            if (result.ok) st.reapAll.freedBytes += result.freedBytes ?? 0;
+            else {
+              st.reapAll.failures += 1;
+              st.rowErrors.set(row.path, result.reason ?? "reap refused");
+            }
+          } catch (err) {
+            st.reapAll.failures += 1;
+            st.rowErrors.set(row.path, errorMessage(err));
+          }
+          st.reapAll.done += 1;
+          renderWorktreesPanelState();
+        }
+        await refetchWorktreesPanel(st);
+        void refreshWorktreeCache().then(() => renderList());
+      })();
+    },
+    onToggleRow: (path) => {
+      if (!worktreesPanelState) return;
+      worktreesPanelState.expandedPath = worktreesPanelState.expandedPath === path ? null : path;
+      renderWorktreesPanelState();
+    },
+    onToggleStack: (sectionKey, stack) => {
+      if (!worktreesPanelState) return;
+      const key = `${sectionKey}::${stack}`;
+      if (worktreesPanelState.expandedStacks.has(key)) worktreesPanelState.expandedStacks.delete(key);
+      else worktreesPanelState.expandedStacks.add(key);
+      renderWorktreesPanelState();
+    },
+    onToggleOrphans: () => {
+      if (!worktreesPanelState) return;
+      worktreesPanelState.orphansExpanded = !worktreesPanelState.orphansExpanded;
+      renderWorktreesPanelState();
+    },
+    onToggleTombstones: () => {
+      if (!worktreesPanelState) return;
+      worktreesPanelState.tombstonesExpanded = !worktreesPanelState.tombstonesExpanded;
+      renderWorktreesPanelState();
+    },
+    onLabelDraftChange: (path, value) => {
+      if (!worktreesPanelState) return;
+      worktreesPanelState.labelDrafts.set(path, value);
+      renderWorktreesPanelState();
+    },
+    onLabelSave: (path) => {
+      const st = worktreesPanelState;
+      if (!st || st.busyPaths.has(path)) return;
+      const draft = st.labelDrafts.get(path);
+      if (draft == null) return;
+      st.busyPaths.add(path);
+      st.rowErrors.delete(path);
+      renderWorktreesPanelState();
+      void (async () => {
+        try {
+          const label = draft.trim() || null;
+          const res = await authFetch("/api/worktrees/label", {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ path, label }),
+          });
+          if (!res.ok) throw new Error(await readApiError(res));
+          if (worktreesPanelState !== st) return;
+          const row = findWorktreePanelRow(path);
+          if (row) row.label = label;
+          st.labelDrafts.delete(path);
+        } catch (err) {
+          if (worktreesPanelState !== st) return;
+          st.rowErrors.set(path, errorMessage(err));
+        }
+        st.busyPaths.delete(path);
+        renderWorktreesPanelState();
+      })();
+    },
+    onReap: (path, opts) => {
+      const st = worktreesPanelState;
+      if (!st || st.busyPaths.has(path)) return;
+      const row = findWorktreePanelRow(path);
+      if (!row) return;
+      if (!row.head) {
+        st.rowErrors.set(path, "No HEAD recorded — rescan first");
+        renderWorktreesPanelState();
+        return;
+      }
+      const name = row.branch || row.name;
+      const prompt = opts.salvage
+        ? `Reap ${name}? Uncommitted changes are salvaged to the attic first.`
+        : `Reap ${name}? The worktree will be removed.`;
+      if (!window.confirm(prompt)) return;
+      st.busyPaths.add(path);
+      st.rowErrors.delete(path);
+      renderWorktreesPanelState();
+      void (async () => {
+        try {
+          const result = await postWorktreeReap({
+            path,
+            expectedHead: row.head!,
+            expectedStatusHash: row.statusHash ?? undefined,
+            salvage: opts.salvage,
+            deleteBranch: "auto",
+          });
+          if (worktreesPanelState !== st) return;
+          if (!result.ok) {
+            st.rowErrors.set(path, result.reason ?? "reap refused");
+          } else {
+            await refetchWorktreesPanel(st);
+            void refreshWorktreeCache().then(() => renderList());
+          }
+        } catch (err) {
+          if (worktreesPanelState !== st) return;
+          st.rowErrors.set(path, errorMessage(err));
+        }
+        st.busyPaths.delete(path);
+        renderWorktreesPanelState();
+      })();
+    },
+    onMoveCanonical: (path) => {
+      const st = worktreesPanelState;
+      if (!st || st.busyPaths.has(path)) return;
+      st.busyPaths.add(path);
+      st.rowErrors.delete(path);
+      renderWorktreesPanelState();
+      void (async () => {
+        try {
+          const res = await authFetch("/api/worktrees/move", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ path }),
+          });
+          if (!res.ok) throw new Error(await readApiError(res));
+          const json = (await res.json()) as { ok?: boolean; newPath?: string };
+          if (worktreesPanelState !== st) return;
+          if (json.ok === false) throw new Error("move failed");
+          if (st.expandedPath === path && typeof json.newPath === "string") st.expandedPath = json.newPath;
+          await refetchWorktreesPanel(st);
+          void refreshWorktreeCache().then(() => renderList());
+        } catch (err) {
+          if (worktreesPanelState !== st) return;
+          st.rowErrors.set(path, errorMessage(err));
+        }
+        st.busyPaths.delete(path);
+        renderWorktreesPanelState();
+      })();
+    },
+    onDropBranch: (branch) => {
+      const st = worktreesPanelState;
+      const key = `branch:${branch}`;
+      if (!st || !st.data || st.busyPaths.has(key)) return;
+      if (!window.confirm(`Drop branch ${branch}? It is attic-tagged first.`)) return;
+      const repoRoot = st.data.repoRoot;
+      st.busyPaths.add(key);
+      st.rowErrors.delete(key);
+      renderWorktreesPanelState();
+      void (async () => {
+        try {
+          const res = await authFetch("/api/branches/drop", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ repoRoot, branch }),
+          });
+          if (!res.ok) throw new Error(await readApiError(res));
+          const result = (await res.json()) as { ok?: boolean; reason?: string };
+          if (worktreesPanelState !== st) return;
+          if (result.ok === false) st.rowErrors.set(key, result.reason ?? "drop refused");
+          else await refetchWorktreesPanel(st);
+        } catch (err) {
+          if (worktreesPanelState !== st) return;
+          st.rowErrors.set(key, errorMessage(err));
+        }
+        st.busyPaths.delete(key);
+        renderWorktreesPanelState();
+      })();
+    },
+  });
+}
+
+function openWorktreesPanel(projectRoot: string): void {
+  const st: WorktreesPanelState = {
+    projectRoot,
+    data: null,
+    loading: true,
+    error: null,
+    filter: "",
+    expandedPath: null,
+    expandedStacks: new Set(),
+    orphansExpanded: false,
+    tombstonesExpanded: false,
+    busyPaths: new Set(),
+    rowErrors: new Map(),
+    labelDrafts: new Map(),
+    rescanning: false,
+    reapAll: null,
+  };
+  worktreesPanelState = st;
+  renderWorktreesPanelState();
+  void refetchWorktreesPanel(st);
 }
 
 const shellProcessNames = new Set(["sh", "bash", "zsh", "fish", "dash", "ksh", "tcsh", "csh", "nu"]);
@@ -4908,6 +5299,7 @@ function renderList(): void {
       renderList();
     },
     onOpenReactivateProject: (groupKey) => openReactivateProjectModal(groupKey),
+    onOpenWorktrees: (groupKey) => openWorktreesPanel(groupKey),
     onOpenLaunch: (groupKey) => openLaunchModal(groupKey),
     onOpenLaunchInWorktree: (groupKey, worktreePath) => openLaunchModal(groupKey, worktreePath),
     onSelectPty: (ptyId) => setActive(ptyId),

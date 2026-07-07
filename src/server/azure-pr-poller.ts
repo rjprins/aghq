@@ -7,7 +7,9 @@ import type { SqliteStore } from "../persist/sqlite.js";
 import { getWorktreeCache } from "../worktree.js";
 import {
   buildPrSummary,
+  getCompletedPrForBranch,
   getCurrentUser,
+  getPrById,
   getPrThreadsSummary,
   listMyActivePRs,
   parseAzureRemote,
@@ -16,6 +18,35 @@ import {
 } from "./azure-pr.js";
 
 const execFileAsync = promisify(execFile);
+
+// repoRoot -> Azure ref (or null if not an Azure remote); avoids re-shelling git.
+const remoteCache = new Map<string, AzureRepoRef | null>();
+
+async function azureRefForRepo(repoRoot: string): Promise<AzureRepoRef | null> {
+  if (remoteCache.has(repoRoot)) return remoteCache.get(repoRoot) ?? null;
+  let ref: AzureRepoRef | null = null;
+  try {
+    const { stdout } = await execFileAsync("git", ["-C", repoRoot, "remote", "get-url", "origin"], { timeout: 10_000 });
+    ref = parseAzureRemote(stdout.trim());
+  } catch {
+    ref = null;
+  }
+  remoteCache.set(repoRoot, ref);
+  return ref;
+}
+
+/** Durable record of a PR's completion, enough to detect post-merge commits offline. */
+export type MergeProof = {
+  repoRoot: string;
+  branch: string;
+  prId: number;
+  title: string;
+  status: "completed" | "abandoned";
+  /** Azure's lastMergeSourceCommit — the exact commit the squash was cut from. */
+  mergeSourceSha: string | null;
+  /** epoch ms of the PR's closedDate. */
+  completedAt: number | null;
+};
 
 // Bracketed-paste wrappers so multi-line text lands in the agent's input box as a
 // paste (visible, not submitted) rather than being interpreted line-by-line.
@@ -33,6 +64,8 @@ export type AzurePrPollerDeps = {
   setPrStateForBranch: (projectRoot: string, branch: string, pr: ReturnType<typeof buildPrSummary> | null) => void;
   broadcastPtyList: () => Promise<void>;
   launchSession: (opts: { agent: string; worktree: string; name: string; initialInput: string }) => Promise<void>;
+  /** Called once when a previously active PR turns completed/abandoned. */
+  onPrResolved?: (info: MergeProof) => void;
   pollIntervalMs: number;
   autoSubmit: boolean;
 };
@@ -43,24 +76,11 @@ export function createAzurePrPoller(deps: AzurePrPollerDeps) {
   let running = false;
   // (repoRoot, branch) keys decorated on the previous tick, so we can clear stale ones.
   let lastKeys = new Set<string>();
-  // repoRoot -> Azure ref (or null if not an Azure remote); avoids re-shelling git every tick.
-  const remoteCache = new Map<string, AzureRepoRef | null>();
+  // Active PRs seen on previous ticks; a PR vanishing from the list means it closed.
+  const trackedPrs = new Map<number, { repoRoot: string; branch: string; title: string }>();
 
   const branchKey = (repoRoot: string, branch: string) => `${repoRoot}\n${branch}`;
   const readMap = (key: string) => store.getPreference<Record<string, number>>(key) ?? {};
-
-  async function azureRefForRepo(repoRoot: string): Promise<AzureRepoRef | null> {
-    if (remoteCache.has(repoRoot)) return remoteCache.get(repoRoot) ?? null;
-    let ref: AzureRepoRef | null = null;
-    try {
-      const { stdout } = await execFileAsync("git", ["-C", repoRoot, "remote", "get-url", "origin"], { timeout: 10_000 });
-      ref = parseAzureRemote(stdout.trim());
-    } catch {
-      ref = null;
-    }
-    remoteCache.set(repoRoot, ref);
-    return ref;
-  }
 
   function formatCommentPrompt(prId: number, title: string, unresolved: number, comments: PrComment[], url: string): string {
     const lines = comments
@@ -103,6 +123,8 @@ export function createAzurePrPoller(deps: AzurePrPollerDeps) {
       const delivered = readMap(DELIVERED_PREF);
       const viewed = readMap(VIEWED_PREF);
       let deliveredChanged = false;
+      const activeNow = new Map<number, { repoRoot: string; branch: string; title: string }>();
+      const polledRepos = new Set<string>();
 
       for (const repoRoot of repoRoots) {
         const ref = await azureRefForRepo(repoRoot);
@@ -115,9 +137,11 @@ export function createAzurePrPoller(deps: AzurePrPollerDeps) {
           logger.debug({ err: String(err), repoRoot }, "azure-pr: pr list failed");
           continue;
         }
+        polledRepos.add(repoRoot);
 
         const worktrees = getWorktreeCache(repoRoot);
         for (const pr of prs) {
+          activeNow.set(pr.id, { repoRoot, branch: pr.sourceBranch, title: pr.title });
           let threads;
           try {
             threads = await getPrThreadsSummary(ref, pr.id, me);
@@ -169,6 +193,8 @@ export function createAzurePrPoller(deps: AzurePrPollerDeps) {
         }
       }
 
+      await reportResolvedPrs(activeNow, polledRepos);
+
       if (deliveredChanged) store.setPreference(DELIVERED_PREF, delivered);
       clearStale(seenKeys);
       await deps.broadcastPtyList();
@@ -177,6 +203,45 @@ export function createAzurePrPoller(deps: AzurePrPollerDeps) {
     } finally {
       running = false;
     }
+  }
+
+  /**
+   * A PR tracked last tick that vanished from the active list has closed: fetch
+   * its final state and report the merge proof. Only repos whose list call
+   * succeeded this tick are judged, so a failed poll can't fake a disappearance.
+   */
+  async function reportResolvedPrs(
+    activeNow: Map<number, { repoRoot: string; branch: string; title: string }>,
+    polledRepos: Set<string>,
+  ): Promise<void> {
+    for (const [prId, info] of [...trackedPrs]) {
+      if (!polledRepos.has(info.repoRoot) || activeNow.has(prId)) continue;
+      const ref = await azureRefForRepo(info.repoRoot);
+      if (!ref) {
+        trackedPrs.delete(prId);
+        continue;
+      }
+      try {
+        const pr = await getPrById(ref, prId);
+        if (pr.status === "completed" || pr.status === "abandoned") {
+          deps.onPrResolved?.({
+            repoRoot: info.repoRoot,
+            branch: info.branch,
+            prId,
+            title: pr.title || info.title,
+            status: pr.status,
+            mergeSourceSha: pr.mergeSourceSha,
+            completedAt: pr.closedAt,
+          });
+          logger.info({ prId, status: pr.status, mergeSourceSha: pr.mergeSourceSha }, "azure-pr: pr resolved");
+        }
+        trackedPrs.delete(prId); // final state known (or PR left our view another way)
+      } catch (err) {
+        // keep the entry: retry the lookup next tick
+        logger.debug({ err: String(err), prId }, "azure-pr: resolution lookup failed");
+      }
+    }
+    for (const [prId, info] of activeNow) trackedPrs.set(prId, info);
   }
 
   function clearStale(seenKeys: Set<string>): void {
@@ -201,6 +266,38 @@ export function createAzurePrPoller(deps: AzurePrPollerDeps) {
       timer = null;
     },
   };
+}
+
+const PROOF_TTL_MS = 10 * 60_000;
+// (repoRoot, branch) -> cached lookup, so repeated checks don't hammer az.
+const proofCache = new Map<string, { at: number; value: MergeProof | null }>();
+
+/**
+ * Look up the merge proof for a branch on demand (outside the poller): the most
+ * recently completed/abandoned PR whose source is `branch`. Null if the repo has
+ * no Azure remote or no closed PR exists for the branch.
+ */
+export async function lookupMergeProof(repoRoot: string, branch: string): Promise<MergeProof | null> {
+  const key = `${repoRoot}\n${branch}`;
+  const cached = proofCache.get(key);
+  if (cached && Date.now() - cached.at < PROOF_TTL_MS) return cached.value;
+
+  const ref = await azureRefForRepo(repoRoot);
+  if (!ref) return null;
+  const pr = await getCompletedPrForBranch(ref, branch);
+  const value: MergeProof | null = pr
+    ? {
+        repoRoot,
+        branch,
+        prId: pr.id,
+        title: pr.title,
+        status: pr.status,
+        mergeSourceSha: pr.mergeSourceSha,
+        completedAt: pr.closedAt,
+      }
+    : null;
+  proofCache.set(key, { at: Date.now(), value });
+  return value;
 }
 
 /** Mark a PR as viewed (now), clearing its new-comment flag on the next poll. */

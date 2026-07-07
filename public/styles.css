@@ -3089,3 +3089,246 @@ button:disabled {
     max-height: 220px;
   }
 }
+
+/* --- Worktrees panel (worktree management overlay) --- */
+
+.worktrees-panel {
+  width: min(880px, calc(100vw - 24px));
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  gap: 10px;
+}
+
+.worktrees-panel-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.worktrees-panel-header h3 {
+  margin: 0;
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.worktrees-filter {
+  width: 160px;
+}
+
+.worktrees-close {
+  padding: 2px 9px;
+  font-size: 16px;
+  line-height: 1.4;
+}
+
+.worktrees-progress,
+.worktrees-loading,
+.worktrees-footer {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.worktrees-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.worktrees-section-header {
+  margin-top: 8px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.worktrees-section-header.collapsible {
+  cursor: pointer;
+}
+
+.worktrees-section-header .group-chevron {
+  font-size: 9px;
+}
+
+.worktrees-section-count {
+  color: var(--muted);
+  opacity: 0.7;
+}
+
+.wt-row {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 10px;
+  background: var(--surface);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.wt-row:hover {
+  background: var(--surface-hover);
+}
+
+.wt-row.expanded {
+  border-color: var(--button-hover);
+}
+
+.wt-row.tombstone {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.wt-row.orphan {
+  cursor: default;
+}
+
+.wt-stack-header {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+}
+
+.wt-stack-member {
+  margin-left: 16px;
+}
+
+.wt-row-main {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.wt-branch {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 45%;
+}
+
+.wt-dir-drift {
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.wt-row-meta {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.wt-badge {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.wt-badge.state-active {
+  color: var(--ready);
+  border-color: var(--ready-glow);
+}
+
+.wt-badge.state-open {
+  color: var(--accent);
+  border-color: var(--busy-track);
+}
+
+.wt-badge.state-merged {
+  color: var(--ready);
+  border-color: var(--ready-glow);
+}
+
+.wt-badge.dirty,
+.wt-badge.unpushed {
+  color: var(--busy);
+  border-color: var(--busy-track);
+}
+
+.wt-badge.drift,
+.wt-badge.never-pushed {
+  color: var(--muted);
+}
+
+.wt-context {
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.wt-details {
+  border-top: 1px solid var(--line);
+  margin-top: 2px;
+  padding-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  cursor: default;
+  font-size: 12px;
+}
+
+.wt-evidence {
+  color: var(--muted);
+}
+
+.wt-path {
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.wt-path code {
+  font-size: 11px;
+}
+
+.wt-pr-line {
+  color: var(--text);
+}
+
+.wt-label-edit {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.wt-label-edit input {
+  flex: 1;
+}
+
+.wt-salvage-note {
+  color: var(--busy);
+  font-size: 11px;
+}
+
+.wt-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.wt-error {
+  color: var(--danger);
+  font-size: 12px;
+}
+
+.close-wt-evidence {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}

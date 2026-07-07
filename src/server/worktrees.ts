@@ -5,6 +5,7 @@ import type { SqliteStore } from "../persist/sqlite.js";
 import {
   DEFAULT_WORKTREE_TEMPLATE,
   getWorktreeCache,
+  gitRepoRootFromCwd,
   isKnownWorktree,
   refreshWorktreeCacheSync,
   resolveWorktreePath,
@@ -93,9 +94,19 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
     return { worktrees, repoRoot: effectiveRepoRoot };
   }
 
+  // Resolve the repo a worktree path belongs to (any repo, not just the
+  // server's own), refreshing that repo's cache so membership checks are fresh.
+  function repoRootForWorktreePath(resolved: string): string | null {
+    const root = gitRepoRootFromCwd(resolved);
+    if (!root) return null;
+    refreshWorktreeCacheSync(root);
+    return root;
+  }
+
   async function worktreeStatus(wtPath: string): Promise<WorktreeStatus> {
     const resolved = path.resolve(wtPath);
-    if (!isKnownWorktree(resolved, repoRoot)) {
+    const effectiveRoot = repoRootForWorktreePath(resolved);
+    if (!effectiveRoot || !isKnownWorktree(resolved, effectiveRoot)) {
       throw new Error("path is not a known worktree");
     }
     const statusText = await new Promise<string>((resolve, reject) => {
@@ -265,7 +276,8 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
 
   async function removeWorktree(wtPath: string): Promise<void> {
     const resolved = path.resolve(wtPath);
-    if (!isKnownWorktree(resolved, repoRoot)) {
+    const effectiveRoot = repoRootForWorktreePath(resolved);
+    if (!effectiveRoot || !isKnownWorktree(resolved, effectiveRoot)) {
       throw new Error("path is not a known worktree");
     }
     const statusText = await new Promise<string>((resolve, reject) => {
@@ -276,14 +288,14 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
     });
     if (statusText.trim().length > 0) {
       await new Promise<void>((resolve, reject) => {
-        execFile("git", ["worktree", "remove", "--force", resolved], { cwd: repoRoot }, (err) => {
+        execFile("git", ["worktree", "remove", "--force", resolved], { cwd: effectiveRoot }, (err) => {
           if (err) reject(err);
           else resolve();
         });
       });
     } else {
       await new Promise<void>((resolve, reject) => {
-        execFile("git", ["worktree", "remove", resolved], { cwd: repoRoot }, (err) => {
+        execFile("git", ["worktree", "remove", resolved], { cwd: effectiveRoot }, (err) => {
           if (err) reject(err);
           else resolve();
         });
@@ -291,7 +303,7 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
     }
     try {
       await new Promise<void>((resolve, reject) => {
-        execFile("git", ["worktree", "prune"], { cwd: repoRoot }, (err) => {
+        execFile("git", ["worktree", "prune"], { cwd: effectiveRoot }, (err) => {
           if (err) reject(err);
           else resolve();
         });
@@ -299,7 +311,7 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
     } catch {
       // ignore prune failures
     }
-    refreshWorktreeCacheSync(repoRoot);
+    refreshWorktreeCacheSync(effectiveRoot);
   }
 
   async function directoryExists(rawPath: string): Promise<boolean> {
@@ -309,7 +321,9 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
 
   function isKnownWorktreePath(rawPath: string): boolean {
     const resolved = path.resolve(expandHomePath(rawPath));
-    return isKnownWorktree(resolved, repoRoot);
+    // Check against the path's own repo, not just the server's (multi-repo).
+    const effectiveRoot = gitRepoRootFromCwd(resolved);
+    return effectiveRoot ? isKnownWorktree(resolved, effectiveRoot) : false;
   }
 
   function refreshCache(): void {

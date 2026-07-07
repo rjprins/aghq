@@ -7,6 +7,8 @@ export type CloseWorktreeModalViewModel = {
   dirty: boolean | null; // null = still loading
   changes: string[];
   closing: boolean;
+  /** Lifecycle evidence from the worktree scan, e.g. "PR !4812 completed · clean". */
+  evidence?: string | null;
 };
 
 export type CloseWorktreeModalHandlers = {
@@ -54,6 +56,8 @@ export function renderCloseWorktreeModal(
           <strong>{model.ptyProcess}</strong> is the last session in worktree{" "}
           <strong>{model.worktreeName}</strong>.
         </p>
+
+        {model.evidence ? <p className="close-wt-evidence">{model.evidence}</p> : null}
 
         <p
           className={`close-wt-status${

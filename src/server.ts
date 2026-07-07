@@ -41,6 +41,9 @@ import { registerTaskRoutes } from "./server/routes/tasks.js";
 import { registerTriggerRoutes } from "./server/routes/triggers.js";
 import { registerWorktreeRoutes } from "./server/routes/worktrees.js";
 import { createWorktreeService } from "./server/worktrees.js";
+import { createWorktreeScanner } from "./server/worktree-scanner.js";
+import { createReapService } from "./server/worktree-reap.js";
+import { lookupMergeProof } from "./server/azure-pr-poller.js";
 import { registerWs } from "./server/ws.js";
 
 assertLoopbackHostAllowed();
@@ -92,7 +95,26 @@ registerAgentRoutes({
   agmuxSession: AGMUX_SESSION,
 });
 
-registerWorktreeRoutes({ fastify, worktrees });
+const scanner = createWorktreeScanner({
+  store,
+  logger: fastify.log,
+  getLivePtyCwds: async () =>
+    (await runtime.listPtys())
+      .filter((p) => p.status === "running")
+      .map((p) => p.cwd)
+      .filter((c): c is string => !!c),
+  getPrStateForBranch: (repoRoot, branch) => {
+    const pr = runtime.getPrStateForBranch(repoRoot, branch);
+    // Poller only decorates active PRs, so presence means an open PR.
+    return pr ? { id: pr.id, title: pr.title, status: "active" } : null;
+  },
+  lookupMergeProof: AZURE_PR_ENABLED ? lookupMergeProof : undefined,
+  getWorktreeTemplate: () => worktrees.getWorktreeTemplate(),
+  resolveDefaultBranch: (root) => worktrees.defaultBranch(root),
+});
+const reaper = createReapService({ store, logger: fastify.log });
+
+registerWorktreeRoutes({ fastify, worktrees, scanner, reaper, store });
 registerTmuxRoutes({ fastify });
 registerSettingsRoutes({ fastify, store });
 registerTaskRoutes({ fastify, store });
@@ -175,7 +197,12 @@ if (AZURE_PR_ENABLED) {
     },
     pollIntervalMs: AZURE_PR_POLL_INTERVAL_MS,
     autoSubmit: AZURE_PR_AUTO_SUBMIT,
+    onPrResolved: (info) => scanner.notifyPrResolved(info),
   });
   azurePrPoller.start();
   console.log(`[agmux] Azure PR polling enabled (every ${Math.round(AZURE_PR_POLL_INTERVAL_MS / 1000)}s).`);
 }
+
+// Daily worktree sweep + one-time tombstone backfill for the server's own repo.
+scanner.startSweep();
+void scanner.backfillTombstones(REPO_ROOT).catch(() => {});

@@ -110,6 +110,7 @@ export type PtyListHandlers = {
   onTogglePin: (groupKey: string) => void;
   onToggleInlineInactive: (groupKey: string) => void;
   onOpenReactivateProject: (groupKey: string) => void;
+  onOpenWorktrees: (groupKey: string) => void;
   onOpenLaunch: (groupKey: string) => void;
   onOpenLaunchInWorktree: (groupKey: string, worktreePath: string) => void;
   onSelectPty: (ptyId: string) => void;
@@ -498,6 +499,18 @@ export function renderPtyList(root: Element, model: PtyListModel, handlers: PtyL
                 ) : null}
                 <button
                   type="button"
+                  className="group-action-btn group-worktrees-btn"
+                  title="Worktrees\u2026"
+                  aria-label={`Worktrees for ${group.label}`}
+                  onClick={(ev) => {
+                    ev.stopPropagation();
+                    handlers.onOpenWorktrees(group.key);
+                  }}
+                >
+                  {"\u2442"}
+                </button>
+                <button
+                  type="button"
                   className="group-launch"
                   title="Launch agent"
                   onClick={(ev) => {
@@ -569,6 +582,18 @@ export function renderPtyList(root: Element, model: PtyListModel, handlers: PtyL
                             {"\u21ba"}
                           </button>
                         ) : null}
+                        <button
+                          type="button"
+                          className="group-action-btn group-worktrees-btn"
+                          title="Worktrees\u2026"
+                          aria-label={`Worktrees for ${group.label}`}
+                          onClick={(ev) => {
+                            ev.stopPropagation();
+                            handlers.onOpenWorktrees(group.key);
+                          }}
+                        >
+                          {"\u2442"}
+                        </button>
                         <button
                           type="button"
                           className="group-action-btn"
