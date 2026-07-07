@@ -306,12 +306,14 @@ export function createReapService(deps: ReapServiceDeps) {
     const freedBytes = (await duBytes(wtPath)) ?? 0;
 
     // Salvage: staged into a temp dir, so staged-but-deleted blobs are
-    // recoverable and the final drift check can verify set inclusion.
+    // recoverable and the final drift check can verify set inclusion. Runs for
+    // ignored-only trees too — small ignored files (.env) deserve the net.
     let salvagePath: string | null = null;
     let stagedSet = new Set<string>();
-    if (status.dirty) {
-      const files = await salvageablePaths(wtPath);
-      if (files.length > 0) {
+    if (status.dirty || status.ignoredOnly) {
+      const files = status.dirty ? await salvageablePaths(wtPath) : [];
+      const ignoredRiders = await smallIgnoredFiles(wtPath, rawStatus);
+      if (files.length > 0 || ignoredRiders.length > 0) {
         const { day, time } = stamp(new Date());
         const slug = sanitizeBranchName(detached ? path.basename(wtPath) : branch);
         const outFile = path.join(atticRoot, path.basename(repoRoot), `${slug}-${day}-${time}-${head.slice(0, 7)}.tar.gz`);
@@ -319,7 +321,7 @@ export function createReapService(deps: ReapServiceDeps) {
         try {
           stagedSet = await stageSalvage(wtPath, files, stageDir);
           // Small ignored files (.env and friends) ride along; .venv-style dirs stay excluded.
-          for (const rel of await smallIgnoredFiles(wtPath, rawStatus)) {
+          for (const rel of ignoredRiders) {
             const added = await stageSalvage(wtPath, [rel], stageDir);
             for (const a of added) stagedSet.add(a);
           }
@@ -343,12 +345,22 @@ export function createReapService(deps: ReapServiceDeps) {
       }
     }
 
+    // An abort after salvage means nothing was deleted — the tarball is
+    // redundant and would pile up across retries.
+    const dropSalvage = async (): Promise<void> => {
+      if (!salvagePath) return;
+      await fsp.rm(salvagePath, { force: true }).catch(() => {});
+      await fsp.rm(salvagePath.replace(/\.tar\.gz$/, ".manifest.json"), { force: true }).catch(() => {});
+      salvagePath = null;
+    };
+
     // Guard 3: final drift check immediately before removal. ANY status drift
     // aborts — even after a successful salvage (new files would not be in it).
     const finalRaw = await git(["status", "--porcelain=v2", "--ignored"], wtPath);
     const finalStatus = summarizeStatusV2(finalRaw);
     if (finalStatus.statusHash !== status.statusHash) {
-      return { ok: false, aborted: true, reason: "worktree changed during reap; nothing was deleted", repoRoot, salvagePath };
+      await dropSalvage();
+      return { ok: false, aborted: true, reason: "worktree changed during reap; nothing was deleted", repoRoot };
     }
     if (finalStatus.dirty) {
       // Belt and suspenders: everything salvageable now must be inside the salvage.
@@ -362,12 +374,12 @@ export function createReapService(deps: ReapServiceDeps) {
           else if (await gitOk(["cat-file", "-e", `:${rel}`], wtPath)) losable.push(rel);
         }
         if (losable.length > 0) {
+          await dropSalvage();
           return {
             ok: false,
             aborted: true,
             reason: `unsalvaged changes present (${losable.slice(0, 3).join(", ")}${losable.length > 3 ? ", …" : ""}); nothing was deleted`,
             repoRoot,
-            salvagePath,
           };
         }
       }

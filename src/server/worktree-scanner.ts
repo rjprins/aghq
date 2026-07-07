@@ -344,6 +344,10 @@ export function createWorktreeScanner(deps: WorktreeScannerDeps) {
       // Mid-reap rows are the reap funnel's to tombstone, not ours.
       if (activeReapPaths.has(path.resolve(row.path))) continue;
       if (gitPaths.has(row.path)) continue;
+      // liveRows is a snapshot from scan start: a reap finishing mid-scan has
+      // already written its (richer) tombstone — re-read before acting so we
+      // don't shadow it with an information-free duplicate.
+      if (!store.getWorktreeRowByPath(repoRoot, row.path)) continue;
       const healed = entries.find((e) => {
         if (!e.branch || e.branch !== row.branch) return false;
         const detail = parseStateDetail(row);
