@@ -256,6 +256,139 @@ describe("SqliteStore worktrees", () => {
     });
   });
 
+  test("cwd prefix queries treat LIKE wildcards in paths literally", async () => {
+    const store = await makeStore();
+
+    store.upsertAgentSession(agentSession({
+      providerSessionId: "s1",
+      name: "underscore",
+      cwd: "/repo/.worktrees/a_c/sub",
+      createdAt: 1_000,
+      lastSeenAt: 2_000,
+    }));
+    store.upsertAgentSession(agentSession({
+      providerSessionId: "s2",
+      name: "wildcard-victim",
+      cwd: "/repo/.worktrees/abc/sub",
+      createdAt: 1_000,
+      lastSeenAt: 2_000,
+    }));
+
+    // Before escaping, 'a_c' matched 'abc' as a LIKE pattern.
+    const ctx = store.agentSessionContextForPath(["/repo/.worktrees/a_c"]);
+    expect(ctx.sessionCount).toBe(1);
+    expect(ctx.earliestName).toBe("underscore");
+
+    const list = store.listAgentSessionsByCwdPrefix("/repo/.worktrees/a_c");
+    expect(list.map((s) => s.name)).toEqual(["underscore"]);
+  });
+
+  test("tombstoneWorktree overlays the newest tombstone when no live row remains", async () => {
+    const store = await makeStore();
+    const wt = "/repo/.worktrees/feat-g";
+
+    // Older reap cycle at the same path.
+    store.upsertWorktreeObservation({
+      repoRoot: REPO,
+      path: wt,
+      branch: "feat/g",
+      state: "merged",
+      stateDetail: null,
+      scannedAt: 1_000,
+    });
+    vi.spyOn(Date, "now").mockReturnValue(100);
+    store.tombstoneWorktree(REPO, wt, {
+      state: "merged",
+      reapEvidence: "old cycle",
+      salvagePath: null,
+      atticTag: null,
+    });
+
+    // Recreated, then tombstoned out-of-band by a scan.
+    const liveId = store.upsertWorktreeObservation({
+      repoRoot: REPO,
+      path: wt,
+      branch: "feat/g",
+      state: "active",
+      stateDetail: null,
+      scannedAt: 2_000,
+    });
+    vi.spyOn(Date, "now").mockReturnValue(200);
+    store.tombstoneWorktree(REPO, wt, {
+      state: "unknown",
+      reapEvidence: "out-of-band removal",
+      salvagePath: null,
+      atticTag: null,
+    });
+
+    // The reap's authoritative tombstone lands on the newest row, keeping its reaped_at.
+    vi.spyOn(Date, "now").mockReturnValue(300);
+    store.tombstoneWorktree(REPO, wt, {
+      state: "merged",
+      reapEvidence: "PR !9 completed",
+      salvagePath: "/attic/feat-g.tar.gz",
+      atticTag: "attic/feat-g",
+    });
+
+    const all = store.listWorktreeRows(REPO, { includeTombstones: true });
+    expect(all).toHaveLength(2);
+    const newest = all.find((r) => r.id === liveId);
+    expect(newest?.reaped_at).toBe(200);
+    expect(newest?.state).toBe("merged");
+    expect(newest?.reap_evidence).toBe("PR !9 completed");
+    expect(newest?.salvage_path).toBe("/attic/feat-g.tar.gz");
+    expect(newest?.attic_tag).toBe("attic/feat-g");
+    const older = all.find((r) => r.id !== liveId);
+    expect(older?.reaped_at).toBe(100);
+    expect(older?.reap_evidence).toBe("old cycle");
+  });
+
+  test("findWorktreeRowsByPath matches current and prior paths, newest first", async () => {
+    const store = await makeStore();
+    const wt = "/repo/.worktrees/feat-h";
+
+    const oldId = store.upsertWorktreeObservation({
+      repoRoot: REPO,
+      path: wt,
+      branch: "feat/h",
+      state: "merged",
+      stateDetail: null,
+      scannedAt: 1_000,
+    });
+    store.tombstoneWorktree(REPO, wt, {
+      state: "merged",
+      reapEvidence: "first cycle",
+      salvagePath: null,
+      atticTag: null,
+    });
+    const newId = store.upsertWorktreeObservation({
+      repoRoot: REPO,
+      path: wt,
+      branch: "feat/h2",
+      state: "active",
+      stateDetail: null,
+      scannedAt: 2_000,
+    });
+    // Unrelated path must not match.
+    store.upsertWorktreeObservation({
+      repoRoot: REPO,
+      path: "/repo/.worktrees/other",
+      branch: "feat/other",
+      state: "active",
+      stateDetail: null,
+      scannedAt: 2_000,
+    });
+
+    expect(store.findWorktreeRowsByPath(wt).map((r) => r.id)).toEqual([newId, oldId]);
+
+    // After a move the old path still resolves via prior_paths.
+    const moved = "/repo/.worktrees/feat-h-renamed";
+    store.moveWorktreePath(REPO, wt, moved);
+    expect(store.findWorktreeRowsByPath(wt).map((r) => r.id)).toEqual([newId, oldId]);
+    expect(store.findWorktreeRowsByPath(moved).map((r) => r.id)).toEqual([newId]);
+    expect(store.findWorktreeRowsByPath("/repo/.worktrees/nope")).toEqual([]);
+  });
+
   test("insertWorktreeTombstoneIfMissing inserts once and skips any existing row", async () => {
     const store = await makeStore();
     const gone = "/repo/.worktrees/long-gone";

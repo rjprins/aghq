@@ -5,6 +5,7 @@ import type {
   WorktreesFullResponse,
   WorktreeTombstone,
 } from "../shared/worktrees.js";
+import { rowMatchesFilter } from "./worktree-filter.js";
 
 export type WorktreesPanelViewModel = {
   projectRoot: string;
@@ -74,15 +75,6 @@ function sectionForRow(w: WorktreeAnnotated): string {
     default:
       return "unknown";
   }
-}
-
-function rowMatchesFilter(w: WorktreeAnnotated, q: string): boolean {
-  if (!q) return true;
-  const hay = [w.branch, w.name, w.label, w.ticketId, w.prTitle, w.firstPrompt, w.path]
-    .filter((s): s is string => Boolean(s))
-    .join("\n")
-    .toLowerCase();
-  return hay.includes(q);
 }
 
 export function formatBytesShort(n: number): string {
@@ -345,12 +337,16 @@ export function renderWorktreesPanel(
     else bySection.set(key, [row]);
   }
 
-  const safeRows = (model.data?.worktrees ?? []).filter((w) => w.reapClass === "reap-safe");
+  // Scope the batch button to the visible (filtered) rows so off-screen rows are never reaped.
+  const safeRows = (model.data?.worktrees ?? []).filter(
+    (w) => w.reapClass === "reap-safe" && rowMatchesFilter(w, q),
+  );
   const safeBytes = safeRows.reduce((acc, w) => acc + (w.diskBytes ?? 0), 0);
   const orphans = model.data?.orphanBranches ?? [];
   const tombstones = model.data?.tombstones ?? [];
   const repoName = model.data ? basename(model.data.repoRoot) : basename(model.projectRoot);
   const progress = model.reapAll;
+  const reapBatchRunning = progress != null && progress.done < progress.total;
 
   render(
     <div
@@ -381,14 +377,19 @@ export function renderWorktreesPanel(
             value={model.filter}
             onInput={(ev) => handlers.onFilterChange((ev.target as HTMLInputElement).value)}
           />
-          <button type="button" disabled={model.rescanning} onClick={() => handlers.onRescan()}>
+          <button
+            type="button"
+            disabled={model.rescanning || reapBatchRunning}
+            title={reapBatchRunning ? "Wait for the reap batch to finish" : undefined}
+            onClick={() => handlers.onRescan()}
+          >
             {model.rescanning ? "Scanning…" : "Rescan"}
           </button>
           {safeRows.length > 0 ? (
             <button
               type="button"
               className="launch-modal-go"
-              disabled={progress != null && progress.done < progress.total}
+              disabled={reapBatchRunning}
               onClick={() => handlers.onReapAllSafe()}
             >
               Reap all safe ({safeRows.length}

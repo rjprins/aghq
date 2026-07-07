@@ -126,6 +126,8 @@ export type ReapResult = {
   ok: boolean;
   aborted?: boolean;
   reason?: string;
+  /** Resolved repo root of the reaped worktree (for cache invalidation/rescan). */
+  repoRoot?: string;
   freedBytes?: number;
   salvagePath?: string | null;
   atticTag?: string | null;

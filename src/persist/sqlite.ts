@@ -836,25 +836,52 @@ export class SqliteStore {
     tx();
   }
 
-  /** Mark the live row at path as reaped. */
+  /** Mark the live row at path as reaped; with no live row, overlay the newest tombstone. */
   tombstoneWorktree(repoRoot: string, path: string, t: WorktreeTombstoneInput): void {
-    this.db.prepare(`
-      update worktrees
-      set reaped_at = @reaped_at,
-          state = @state,
-          reap_evidence = @reap_evidence,
-          salvage_path = @salvage_path,
-          attic_tag = @attic_tag
-      where repo_root = @repo_root and path = @path and reaped_at is null;
-    `).run({
-      repo_root: repoRoot,
-      path,
-      reaped_at: Date.now(),
-      state: t.state,
-      reap_evidence: t.reapEvidence,
-      salvage_path: t.salvagePath,
-      attic_tag: t.atticTag,
+    const tx = this.db.transaction(() => {
+      const res = this.db.prepare(`
+        update worktrees
+        set reaped_at = @reaped_at,
+            state = @state,
+            reap_evidence = @reap_evidence,
+            salvage_path = @salvage_path,
+            attic_tag = @attic_tag
+        where repo_root = @repo_root and path = @path and reaped_at is null;
+      `).run({
+        repo_root: repoRoot,
+        path,
+        reaped_at: Date.now(),
+        state: t.state,
+        reap_evidence: t.reapEvidence,
+        salvage_path: t.salvagePath,
+        attic_tag: t.atticTag,
+      });
+      if (res.changes > 0) return;
+
+      // A scan tombstoned the path first; the reap's salvage/attic pointers are
+      // authoritative, so write them onto that row (keeping its reaped_at).
+      this.db.prepare(`
+        update worktrees
+        set state = @state,
+            reap_evidence = @reap_evidence,
+            salvage_path = @salvage_path,
+            attic_tag = @attic_tag
+        where id = (
+          select id from worktrees
+          where repo_root = @repo_root and path = @path and reaped_at is not null
+          order by id desc
+          limit 1
+        );
+      `).run({
+        repo_root: repoRoot,
+        path,
+        state: t.state,
+        reap_evidence: t.reapEvidence,
+        salvage_path: t.salvagePath,
+        attic_tag: t.atticTag,
+      });
     });
+    tx();
   }
 
   /** Rename a live row's path, remembering the old path. Merges into an existing live row at newPath. */
@@ -919,6 +946,17 @@ export class SqliteStore {
     return this.getLiveWorktreeRow(repoRoot, path);
   }
 
+  /** Rows in any repo whose path matches now or did before a move (newest first). */
+  findWorktreeRowsByPath(path: string): WorktreeRow[] {
+    const rows = this.db.prepare(`
+      select ${WORKTREE_COLUMNS}
+      from worktrees
+      where path = ? or prior_paths is not null
+      order by id desc;
+    `).all(path) as WorktreeRow[];
+    return rows.filter((r) => r.path === path || this.parsePriorPaths(r.prior_paths).includes(path));
+  }
+
   /** Backfill a tombstone for a path with no row at all. Returns true when inserted. */
   insertWorktreeTombstoneIfMissing(input: WorktreeBackfillTombstoneInput): boolean {
     const exists = this.db.prepare(`
@@ -954,9 +992,9 @@ export class SqliteStore {
     const candidates = paths.filter((p) => typeof p === "string" && p.length > 0);
     if (candidates.length === 0) return empty;
 
-    const clause = candidates.map(() => "(cwd = ? or cwd like ? || '/%')").join(" or ");
+    const clause = candidates.map(() => "(cwd = ? or cwd like ? || '/%' escape '\\')").join(" or ");
     const params: string[] = [];
-    for (const p of candidates) params.push(p, p);
+    for (const p of candidates) params.push(p, this.escapeLikePattern(p));
 
     const agg = this.db.prepare(`
       select count(*) as session_count, min(created_at) as earliest_created_at, max(last_seen_at) as last_seen_at
@@ -991,10 +1029,10 @@ export class SqliteStore {
     const rows = this.db.prepare(`
       select provider, provider_session_id, name, created_at, last_seen_at
       from agent_sessions
-      where cwd = ? or cwd like ? || '/%'
+      where cwd = ? or cwd like ? || '/%' escape '\\'
       order by last_seen_at desc
       limit ?;
-    `).all(prefix, prefix, limit) as Array<{
+    `).all(prefix, this.escapeLikePattern(prefix), limit) as Array<{
       provider: string;
       provider_session_id: string;
       name: string;
@@ -1036,6 +1074,11 @@ export class SqliteStore {
         lastSeenAt: r.last_seen_at,
       };
     });
+  }
+
+  /** Escape LIKE wildcards so raw paths can't match as patterns (pair with ESCAPE '\'). */
+  private escapeLikePattern(value: string): string {
+    return value.replace(/[\\%_]/g, (c) => `\\${c}`);
   }
 
   private getLiveWorktreeRow(repoRoot: string, path: string): WorktreeRow | undefined {

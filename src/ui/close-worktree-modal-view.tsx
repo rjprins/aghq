@@ -9,6 +9,8 @@ export type CloseWorktreeModalViewModel = {
   closing: boolean;
   /** Lifecycle evidence from the worktree scan, e.g. "PR !4812 completed · clean". */
   evidence?: string | null;
+  /** Guarded removal needs a scan row; "missing" disables removal instead of force-deleting. */
+  scanState: "loading" | "ready" | "missing";
 };
 
 export type CloseWorktreeModalHandlers = {
@@ -78,6 +80,11 @@ export function renderCloseWorktreeModal(
                 ? "Worktree has uncommitted changes. Removing it will discard them."
                 : "Worktree is clean."}
         </p>
+        {model.canRemoveWorktree && model.scanState === "missing" && (
+          <p className="close-wt-status close-wt-status-loading">
+            No scan data for this worktree, so guarded removal is unavailable. Rescan in the Worktrees panel to remove it.
+          </p>
+        )}
         {model.canRemoveWorktree && isDirty && model.changes.length > 0 && (
           <pre className="close-wt-changes">{model.changes.slice(0, 10).join("\n")}{model.changes.length > 10 ? `\n... and ${model.changes.length - 10} more` : ""}</pre>
         )}
@@ -97,13 +104,19 @@ export function renderCloseWorktreeModal(
             <button
               type="button"
               className={`launch-modal-go${isDirty ? " close-wt-danger" : ""}`}
-              disabled={model.closing || dirtyLoading}
-              title={isDirty ? "Worktree has uncommitted changes" : "Close session and remove worktree from disk"}
+              disabled={model.closing || dirtyLoading || model.scanState !== "ready"}
+              title={
+                model.scanState === "missing"
+                  ? "No scan data for this worktree — rescan in the Worktrees panel, or remove it there"
+                  : isDirty
+                    ? "Worktree has uncommitted changes"
+                    : "Close session and remove worktree from disk"
+              }
               onClick={() => handlers.onCloseAndRemove()}
             >
               {model.closing
                 ? "Closing..."
-                : dirtyLoading
+                : dirtyLoading || model.scanState === "loading"
                   ? "Checking..."
                   : isDirty
                     ? "Close + remove (dirty!)"

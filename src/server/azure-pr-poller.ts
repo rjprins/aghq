@@ -300,6 +300,41 @@ export async function lookupMergeProof(repoRoot: string, branch: string): Promis
   return value;
 }
 
+const prByIdCache = new Map<string, { at: number; value: PrByIdProof | null }>();
+
+export type PrByIdProof = {
+  id: number;
+  title: string;
+  status: string;
+  mergeSourceSha: string | null;
+  completedAt: number | null;
+};
+
+/** Look up a PR by id (for detached pr-<N> review checkouts with no branch). */
+export async function lookupPrProofById(repoRoot: string, prId: number): Promise<PrByIdProof | null> {
+  const key = `${repoRoot}\n#${prId}`;
+  const cached = prByIdCache.get(key);
+  if (cached && Date.now() - cached.at < PROOF_TTL_MS) return cached.value;
+
+  const ref = await azureRefForRepo(repoRoot);
+  if (!ref) return null;
+  let value: PrByIdProof | null = null;
+  try {
+    const pr = await getPrById(ref, prId);
+    value = {
+      id: pr.id,
+      title: pr.title,
+      status: pr.status,
+      mergeSourceSha: pr.mergeSourceSha,
+      completedAt: pr.closedAt,
+    };
+  } catch {
+    value = null;
+  }
+  prByIdCache.set(key, { at: Date.now(), value });
+  return value;
+}
+
 /** Mark a PR as viewed (now), clearing its new-comment flag on the next poll. */
 export function markPrViewed(store: SqliteStore, prId: number): void {
   const viewed = store.getPreference<Record<string, number>>(VIEWED_PREF) ?? {};

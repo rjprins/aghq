@@ -103,17 +103,19 @@ export function registerWorktreeRoutes(deps: WorktreeRoutesDeps): void {
     const baseBranch = typeof body.baseBranch === "string" && body.baseBranch.trim() ? body.baseBranch.trim() : undefined;
     const purpose = typeof body.purpose === "string" ? body.purpose.trim() : "";
     const ticket = typeof body.ticket === "string" ? body.ticket.trim() : "";
+    // A linked-worktree projectRoot would anchor the path template in the wrong
+    // place; normalize to the main repo root first.
+    const repoRoot = gitRepoRootFromCwd(projectRoot) ?? projectRoot;
     try {
-      const wtPath = await worktrees.createWorktreeFromBase({ projectRoot, branch, baseBranch });
+      const wtPath = await worktrees.createWorktreeFromBase({ projectRoot: repoRoot, branch, baseBranch });
       // Purpose lives in both places: git (travels with the repo) and the row (survives reaping).
       if (purpose) {
         try {
-          await execFileAsync("git", ["config", `branch.${branch}.description`, purpose], { cwd: projectRoot, timeout: 10_000 });
+          await execFileAsync("git", ["config", `branch.${branch}.description`, purpose], { cwd: repoRoot, timeout: 10_000 });
         } catch {
           // description is a bonus mirror; the row below is authoritative
         }
       }
-      const repoRoot = gitRepoRootFromCwd(wtPath) ?? projectRoot;
       store.upsertWorktreeObservation({
         repoRoot,
         path: wtPath,
@@ -143,18 +145,24 @@ export function registerWorktreeRoutes(deps: WorktreeRoutesDeps): void {
       reply.code(400);
       return { error: "path and expectedHead are required" };
     }
-    const result = await reaper.reap({
-      path: rawPath,
-      expectedHead,
-      expectedStatusHash: typeof body.expectedStatusHash === "string" ? body.expectedStatusHash : undefined,
-      salvage: body.salvage !== false,
-      deleteBranch: body.deleteBranch === "never" ? "never" : "auto",
-    });
-    if (result.ok) {
-      const repoRoot = gitRepoRootFromCwd(path.dirname(path.resolve(rawPath)));
-      if (repoRoot) void scanner.scan(repoRoot).catch(() => {});
+    try {
+      const result = await reaper.reap({
+        path: rawPath,
+        expectedHead,
+        expectedStatusHash: typeof body.expectedStatusHash === "string" ? body.expectedStatusHash : undefined,
+        salvage: body.salvage !== false,
+        deleteBranch: body.deleteBranch === "never" ? "never" : "auto",
+      });
+      if (result.ok && result.repoRoot) {
+        scanner.invalidate(result.repoRoot);
+        void scanner.scan(result.repoRoot).catch(() => {});
+      }
+      return result;
+    } catch (err) {
+      // Unexpected throws surface as guard refusals: the UI treats transport
+      // errors (500) differently from ok:false.
+      return { ok: false, reason: err instanceof Error ? err.message : String(err) };
     }
-    return result;
   });
 
   fastify.post("/api/branches/drop", async (req, reply) => {
@@ -165,9 +173,14 @@ export function registerWorktreeRoutes(deps: WorktreeRoutesDeps): void {
       reply.code(400);
       return { error: "repoRoot (a git repository) and branch are required" };
     }
-    const result = await reaper.dropBranch({ repoRoot: projectRoot, branch });
-    if (result.ok) void scanner.scan(projectRoot).catch(() => {});
-    return result;
+    try {
+      const result = await reaper.dropBranch({ repoRoot: projectRoot, branch });
+      if (result.ok) void scanner.scan(projectRoot).catch(() => {});
+      return result;
+    } catch (err) {
+      // Same contract as reap: never a bare 500 for an unexpected throw.
+      return { ok: false, reason: err instanceof Error ? err.message : String(err) };
+    }
   });
 
   fastify.post("/api/worktrees/move", async (req, reply) => {
@@ -184,10 +197,15 @@ export function registerWorktreeRoutes(deps: WorktreeRoutesDeps): void {
       return { error: "path is not a known worktree" };
     }
     try {
-      const cached = scanner.getCached(repoRoot);
-      const row = cached?.worktrees.find((w) => w.path === resolved);
-      const branch = row?.branch || "";
-      if (!branch) {
+      // Read the branch live — scanner cache is empty after restart and can be stale.
+      let branch = "";
+      try {
+        const { stdout } = await execFileAsync("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd: resolved, timeout: 10_000 });
+        branch = stdout.trim();
+      } catch {
+        branch = "";
+      }
+      if (!branch || branch === "HEAD") {
         reply.code(400);
         return { error: "cannot move a detached worktree to a canonical path" };
       }
@@ -207,6 +225,7 @@ export function registerWorktreeRoutes(deps: WorktreeRoutesDeps): void {
       await execFileAsync("git", ["worktree", "move", resolved, target], { cwd: repoRoot, timeout: 60_000 });
       store.moveWorktreePath(repoRoot, resolved, target);
       refreshWorktreeCacheSync(repoRoot);
+      scanner.invalidate(repoRoot);
       void scanner.scan(repoRoot).catch(() => {});
       return { ok: true, newPath: target };
     } catch (err) {
@@ -249,9 +268,10 @@ export function registerWorktreeRoutes(deps: WorktreeRoutesDeps): void {
       return { error: "path is required" };
     }
     const resolved = path.resolve(rawPath);
-    const repoRoot = gitRepoRootFromCwd(resolved) ?? path.dirname(resolved);
-    const rows = store.listWorktreeRows(repoRoot, { includeTombstones: true });
-    const row = rows.find((r) => r.path === resolved);
+    // Path-keyed lookup: the dir may already be deleted, so no repo-root probe.
+    // Prefer the newest live row; only a tombstoned row yields a tombstone.
+    const rows = store.findWorktreeRowsByPath(resolved);
+    const row = rows.find((r) => r.reaped_at == null) ?? rows[0];
     const sessions = store.listAgentSessionsByCwdPrefix(resolved);
     const tombstone = row?.reaped_at
       ? {
@@ -330,6 +350,12 @@ export function registerWorktreeRoutes(deps: WorktreeRoutesDeps): void {
       return { error: "path is not a known worktree" };
     }
     try {
+      // Dirty trees must go through the reap funnel, which salvages first.
+      const status = await worktrees.worktreeStatus(rawPath);
+      if (status.dirty) {
+        reply.code(409);
+        return { error: "worktree has uncommitted changes; use /api/worktrees/reap" };
+      }
       await worktrees.removeWorktree(rawPath);
       return { ok: true };
     } catch (err) {

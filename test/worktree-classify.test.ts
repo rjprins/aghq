@@ -335,10 +335,12 @@ describe("classifyWorktree states", () => {
     expect(r.evidence).toContain("2 live sessions");
   });
 
-  test("active: session activity within 7 days", () => {
+  test("active: session activity within 7 days, neutral wording", () => {
     const r = classifyWorktree(makeInput({ lastSessionActivityAt: NOW - 2 * DAY_MS }));
     expect(r.state).toBe("active");
-    expect(r.evidence).toContain("session activity 2026-07-05");
+    // Neutral: the timestamp may come from the reflog, not a session.
+    expect(r.evidence).toContain("activity 2026-07-05");
+    expect(r.evidence).not.toContain("session activity");
   });
 
   test("active threshold: just under 7 days is active, exactly 7 days is not", () => {
@@ -468,6 +470,30 @@ describe("classifyWorktree states", () => {
     expect(r.reapClass).toBe("reap-safe");
   });
 
+  test("demotion: upstream gone with stale non-completed prStatus is still merge unproven", () => {
+    const r = classifyWorktree(
+      makeInput({
+        prStatus: "active", // stale record — the PR never completed
+        prId: "4901",
+        ref: { branch: "feature-x", upstream: "origin/feature-x", upstreamGone: true, lastCommitAt: NOW - 30 * DAY_MS, head: "aaa111" },
+      }),
+    );
+    expect(r.state).toBe("merged");
+    expect(r.reapClass).toBe("reap-check");
+    expect(r.evidence).toContain("merge unproven (PR not completed)");
+  });
+
+  test("upstream gone backed by merge-source sha alone is proven and reap-safe", () => {
+    const r = classifyWorktree(
+      makeInput({
+        mergeSourceSha: "aaa111",
+        ref: { branch: "feature-x", upstream: "origin/feature-x", upstreamGone: true, lastCommitAt: NOW - 30 * DAY_MS, head: "aaa111" },
+      }),
+    );
+    expect(r.state).toBe("merged");
+    expect(r.reapClass).toBe("reap-safe");
+  });
+
   test("demotion: live session on a merged branch", () => {
     const r = classifyWorktree(
       makeInput({ prStatus: "completed", mergeSourceSha: "aaa111", liveSessionCount: 1 }),
@@ -541,6 +567,20 @@ describe("classifyWorktree overlays", () => {
       makeInput({ wt: makeWt({ path: "/home/user/wt/feature-x", branch: "feature/x" }) }),
     );
     expect(matching.overlays.drifted).toBe(false);
+  });
+
+  test("template-conformant '{repo-name}-{branch}' dir is not drifted", () => {
+    const r = classifyWorktree(
+      makeInput({ wt: makeWt({ path: "/home/user/agmux-nice-branch", branch: "nice-branch" }) }),
+    );
+    expect(r.overlays.drifted).toBe(false);
+  });
+
+  test("suffix must be '-' separated: glued branch name still drifts", () => {
+    const r = classifyWorktree(
+      makeInput({ wt: makeWt({ path: "/home/user/wt/xfeature-x", branch: "feature-x" }) }),
+    );
+    expect(r.overlays.drifted).toBe(true);
   });
 
   test("primary worktree is never drifted", () => {

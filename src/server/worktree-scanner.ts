@@ -1,9 +1,11 @@
 import { execFile } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import type { FastifyBaseLogger } from "fastify";
 
+import { activeReapPaths } from "./worktree-reap.js";
 import type { SqliteStore, WorktreeRow } from "../persist/sqlite.js";
 import {
   classifyWorktree,
@@ -14,7 +16,7 @@ import {
   type RefInfo,
   type StatusSummary,
 } from "../worktree-classify.js";
-import { DEFAULT_WORKTREE_TEMPLATE, resolveWorktreePath } from "../worktree.js";
+import { DEFAULT_WORKTREE_TEMPLATE, gitRepoRootFromCwd, resolveWorktreePath } from "../worktree.js";
 import {
   sanitizeBranchName,
   type OrphanBranch,
@@ -47,6 +49,17 @@ export type WorktreeScannerDeps = {
   getLivePtyCwds: () => Promise<string[]>;
   getPrStateForBranch?: (repoRoot: string, branch: string) => { id: number; title: string; status: string } | null;
   lookupMergeProof?: MergeProofLookup;
+  /** Lets detached `pr-<N>` review checkouts (no branch) acquire PR status. */
+  lookupPrById?: (
+    repoRoot: string,
+    prId: number,
+  ) => Promise<{
+    id: number;
+    title: string;
+    status: string;
+    mergeSourceSha: string | null;
+    completedAt: number | null;
+  } | null>;
   getWorktreeTemplate: () => string;
   resolveDefaultBranch: (projectRoot: string | null) => Promise<string>;
 };
@@ -139,10 +152,57 @@ function stackBase(branch: string): string | null {
   return m[1];
 }
 
+/**
+ * Reflog entry time (epoch ms) from `git log -g -1 --format=%gd --date=unix`,
+ * which prints `HEAD@{<epoch>}`. `%ct` would be the commit's committer date
+ * and make a fresh checkout of an old commit look like ancient activity.
+ */
+export function parseReflogEntryEpochMs(output: string): number | null {
+  const m = /@\{(\d+)\}/.exec(output.trim());
+  if (!m) return null;
+  const sec = Number.parseInt(m[1], 10);
+  return Number.isFinite(sec) ? sec * 1000 : null;
+}
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Basename matcher for a worktree template: `{branch}` is a wildcard,
+ * `{repo-name}` pins the concrete repo name, everything else is literal.
+ */
+export function templateBasenameRegex(template: string, repoName: string): RegExp {
+  const pattern = path
+    .basename(template)
+    .split(/(\{repo-name\}|\{branch\})/)
+    .map((part) => {
+      if (part === "{branch}") return "(.+)";
+      if (part === "{repo-name}") return escapeRegExp(repoName);
+      return escapeRegExp(part);
+    })
+    .join("");
+  return new RegExp(`^${pattern}$`);
+}
+
+/**
+ * True primary root for any path inside a repo — linked worktree paths map to
+ * the main worktree, so rows/caches never get namespaced under a linked path.
+ */
+async function normalizeRepoRoot(repoRoot: string): Promise<string> {
+  const resolved = path.resolve(repoRoot);
+  try {
+    const out = await git(["rev-parse", "--path-format=absolute", "--git-common-dir"], resolved);
+    return path.dirname(out.trim());
+  } catch {
+    return resolved;
+  }
+}
+
 export function createWorktreeScanner(deps: WorktreeScannerDeps) {
   const { store, logger } = deps;
 
-  const inFlight = new Map<string, Promise<WorktreesFullResponse>>();
+  const inFlight = new Map<string, { opts: ScanOptions; promise: Promise<WorktreesFullResponse> }>();
   const lastFetchPruneAt = new Map<string, number>();
   const lastScan = new Map<string, WorktreesFullResponse>();
   const templateCache = new Map<string, { value: string; at: number }>();
@@ -173,21 +233,56 @@ export function createWorktreeScanner(deps: WorktreeScannerDeps) {
     }
   }
 
-  async function scan(repoRoot: string, opts: ScanOptions = {}): Promise<WorktreesFullResponse> {
-    const key = path.resolve(repoRoot);
-    const existing = inFlight.get(key);
-    if (existing) return existing;
-    const run = doScan(key, opts).finally(() => inFlight.delete(key));
-    inFlight.set(key, run);
-    return run;
+  /** True when `next` asks for work the running scan is not doing. */
+  function requestsMoreWork(next: ScanOptions, running: ScanOptions): boolean {
+    return (
+      (!!next.fetchPrune && !running.fetchPrune) ||
+      (!!next.expensive && !running.expensive) ||
+      (!!next.verifyProofs && !running.verifyProofs)
+    );
   }
 
-  async function doScan(repoRoot: string, opts: ScanOptions): Promise<WorktreesFullResponse> {
+  async function scan(repoRoot: string, opts: ScanOptions = {}): Promise<WorktreesFullResponse> {
+    // Normalize BEFORE the in-flight lookup so a linked-worktree path and its
+    // primary root share one flight.
+    return scanNormalized(await normalizeRepoRoot(repoRoot), opts);
+  }
+
+  /**
+   * Single-flight per repo. A request for strictly more work (or an explicit
+   * chain, e.g. after persisting a PR proof) runs a follow-up scan after the
+   * in-flight one instead of joining its possibly-stale result.
+   */
+  function scanNormalized(key: string, opts: ScanOptions, chainAfterInFlight = false): Promise<WorktreesFullResponse> {
+    const existing = inFlight.get(key);
+    if (existing && !chainAfterInFlight && !requestsMoreWork(opts, existing.opts)) return existing.promise;
+    const prior = existing ? existing.promise.catch(() => {}) : Promise.resolve();
+    let entry: { opts: ScanOptions; promise: Promise<WorktreesFullResponse> };
+    const promise = prior
+      .then(() => doScan(key, opts))
+      .finally(() => {
+        // A chained follow-up may have replaced us — only drop our own entry.
+        if (inFlight.get(key) === entry) inFlight.delete(key);
+      });
+    entry = { opts, promise };
+    inFlight.set(key, entry);
+    return promise;
+  }
+
+  async function doScan(repoRootInput: string, opts: ScanOptions): Promise<WorktreesFullResponse> {
+    // Never trust the caller's root: a linked-worktree path would flip
+    // isPrimary and namespace rows under the wrong key.
+    const repoRoot = await normalizeRepoRoot(repoRootInput);
     const now = Date.now();
     if (opts.fetchPrune) await maybeFetchPrune(repoRoot);
 
     const porcelain = await git(["worktree", "list", "--porcelain"], repoRoot);
-    const entries = parseWorktreeListPorcelainV2(porcelain);
+    // Paths mid-reap are treated as absent this round: annotating would
+    // re-adopt a half-removed worktree, and the tombstone pass below would
+    // shadow the reap's own tombstone (which carries salvage/attic pointers).
+    const entries = parseWorktreeListPorcelainV2(porcelain).filter(
+      (e) => !activeReapPaths.has(path.resolve(e.path)),
+    );
 
     // One for-each-ref pass over local heads; one over origin remotes (never-pushed check).
     const refInfo = new Map<string, RefInfo>();
@@ -246,6 +341,8 @@ export function createWorktreeScanner(deps: WorktreeScannerDeps) {
     // Healing/adoption bookkeeping: rows whose dir vanished from git's list.
     const gitPaths = new Set(entries.map((e) => e.path));
     for (const row of liveRows) {
+      // Mid-reap rows are the reap funnel's to tombstone, not ours.
+      if (activeReapPaths.has(path.resolve(row.path))) continue;
       if (gitPaths.has(row.path)) continue;
       const healed = entries.find((e) => {
         if (!e.branch || e.branch !== row.branch) return false;
@@ -349,9 +446,8 @@ export function createWorktreeScanner(deps: WorktreeScannerDeps) {
     // HEAD-reflog activity catches checkouts/rebases even without sessions.
     let reflogAt: number | null = null;
     try {
-      const out = await git(["log", "-g", "-1", "--format=%ct", "HEAD"], wt.path);
-      const sec = Number.parseInt(out.trim(), 10);
-      reflogAt = Number.isFinite(sec) ? sec * 1000 : null;
+      const out = await git(["log", "-g", "-1", "--format=%gd", "--date=unix", "HEAD"], wt.path);
+      reflogAt = parseReflogEntryEpochMs(out);
     } catch {
       reflogAt = null;
     }
@@ -434,6 +530,26 @@ export function createWorktreeScanner(deps: WorktreeScannerDeps) {
         logger.debug({ err: String(err), branch: wt.branch }, "worktree-scanner: merge-proof lookup failed");
       }
     }
+    // Detached pr-<N> review checkouts have no branch to key a PR on — look
+    // the PR up by id and feed the result straight into classify (no branch
+    // row to persist against).
+    if (wt.detached && prStatus == null && ctx.opts.verifyProofs && deps.lookupPrById) {
+      const m = /^pr-(\d+)$/.exec(path.basename(wt.path));
+      if (m) {
+        try {
+          const pr = await deps.lookupPrById(repoRoot, Number.parseInt(m[1], 10));
+          if (pr) {
+            prStatus = pr.status;
+            prId = String(pr.id);
+            prTitle = pr.title;
+            mergeSourceSha = pr.mergeSourceSha;
+            prCompletedAt = pr.completedAt;
+          }
+        } catch (err) {
+          logger.debug({ err: String(err), path: wt.path }, "worktree-scanner: pr-by-id lookup failed");
+        }
+      }
+    }
 
     const templatePath = wt.branch ? resolveWorktreePath(repoRoot, wt.branch, ctx.template) : null;
     const lastSessionActivityAt = sessionCtx.lastSeenAt;
@@ -464,8 +580,10 @@ export function createWorktreeScanner(deps: WorktreeScannerDeps) {
     let ignoredBytes = priorDetail.ignoredBytes ?? null;
     let diskBytes = priorDetail.diskBytes ?? null;
     const needIgnoredBytes = result.reapClass !== null || ctx.opts.expensive;
-    if (needIgnoredBytes && rawStatus) {
-      const ignoredEntries = ignoredEntriesFromStatus(rawStatus).slice(0, 30);
+    // Gate on status (a clean tree prices to 0 and clears stale demotions);
+    // status --ignored collapses directories, so no cap on the entry list.
+    if (needIgnoredBytes && status != null) {
+      const ignoredEntries = ignoredEntriesFromStatus(rawStatus);
       if (ignoredEntries.length > 0) {
         let total = 0;
         for (const entry of ignoredEntries) {
@@ -552,6 +670,14 @@ export function createWorktreeScanner(deps: WorktreeScannerDeps) {
     return lastScan.get(path.resolve(repoRoot)) ?? null;
   }
 
+  /** Drop the cached scan so the next read rescans (e.g. after a reap or move). */
+  function invalidate(repoRoot: string): void {
+    lastScan.delete(path.resolve(repoRoot));
+    // Scans are keyed by the true primary root — normalize linked-worktree paths.
+    const root = gitRepoRootFromCwd(repoRoot);
+    if (root) lastScan.delete(root);
+  }
+
   /** Serve a recent scan when fresh enough; otherwise scan (no prune). */
   async function getFullFresh(repoRoot: string): Promise<WorktreesFullResponse> {
     const cached = getCached(repoRoot);
@@ -576,9 +702,13 @@ export function createWorktreeScanner(deps: WorktreeScannerDeps) {
       prCompletedAt: info.completedAt,
     });
     // Targeted rescan so the landed pill / reap badge appears promptly.
-    void scan(info.repoRoot).catch((err) =>
-      logger.debug({ err: String(err), repoRoot: info.repoRoot }, "worktree-scanner: post-resolution rescan failed"),
-    );
+    // Chained after any in-flight scan: joining one that already read stale
+    // rows would let its upsert overwrite the proof persisted above.
+    void normalizeRepoRoot(info.repoRoot)
+      .then((key) => scanNormalized(key, {}, true))
+      .catch((err) =>
+        logger.debug({ err: String(err), repoRoot: info.repoRoot }, "worktree-scanner: post-resolution rescan failed"),
+      );
   }
 
   async function knownRepoRoots(): Promise<string[]> {
@@ -616,16 +746,23 @@ export function createWorktreeScanner(deps: WorktreeScannerDeps) {
   }
 
   /** Tombstone worktrees that only exist in session history (deleted before agmux tracked them). */
-  async function backfillTombstones(repoRoot: string): Promise<number> {
+  async function backfillTombstones(repoRootInput: string): Promise<number> {
+    const repoRoot = await normalizeRepoRoot(repoRootInput);
     const template = await repoTemplate(repoRoot);
+    const templateBase = path.basename(template);
     const templateParent = path.dirname(resolveWorktreePath(repoRoot, "x", template));
-    const repoParent = path.dirname(repoRoot);
+    // Only dirs whose name fits the template count — any vanished sibling that
+    // once hosted a session would otherwise become a fake tombstone. Under
+    // $HOME a wildcard-first pattern would match unrelated deleted projects,
+    // so demand a concrete prefix (the "{repo-name}-{branch}" case) there.
+    if (templateParent === os.homedir() && templateBase.startsWith("{branch}")) return 0;
+    const basenameRe = templateBasenameRegex(template, path.basename(repoRoot));
     let inserted = 0;
     for (const rec of store.listAgentSessionCwds()) {
       const cwd = rec.cwd;
       if (!cwd || cwd === repoRoot) continue;
-      const parent = path.dirname(cwd);
-      if (parent !== templateParent && parent !== repoParent) continue;
+      if (path.dirname(cwd) !== templateParent) continue;
+      if (!basenameRe.test(path.basename(cwd))) continue;
       if (fs.existsSync(cwd)) continue;
       const ok = store.insertWorktreeTombstoneIfMissing({
         repoRoot,
@@ -644,6 +781,7 @@ export function createWorktreeScanner(deps: WorktreeScannerDeps) {
   return {
     scan,
     getCached,
+    invalidate,
     getFullFresh,
     notifyPrResolved,
     startSweep,

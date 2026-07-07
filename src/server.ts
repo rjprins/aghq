@@ -43,7 +43,7 @@ import { registerWorktreeRoutes } from "./server/routes/worktrees.js";
 import { createWorktreeService } from "./server/worktrees.js";
 import { createWorktreeScanner } from "./server/worktree-scanner.js";
 import { createReapService } from "./server/worktree-reap.js";
-import { lookupMergeProof } from "./server/azure-pr-poller.js";
+import { lookupMergeProof, lookupPrProofById } from "./server/azure-pr-poller.js";
 import { registerWs } from "./server/ws.js";
 
 assertLoopbackHostAllowed();
@@ -109,10 +109,15 @@ const scanner = createWorktreeScanner({
     return pr ? { id: pr.id, title: pr.title, status: "active" } : null;
   },
   lookupMergeProof: AZURE_PR_ENABLED ? lookupMergeProof : undefined,
+  lookupPrById: AZURE_PR_ENABLED ? lookupPrProofById : undefined,
   getWorktreeTemplate: () => worktrees.getWorktreeTemplate(),
   resolveDefaultBranch: (root) => worktrees.defaultBranch(root),
 });
-const reaper = createReapService({ store, logger: fastify.log });
+const reaper = createReapService({
+  store,
+  logger: fastify.log,
+  resolveDefaultBranch: (root) => worktrees.defaultBranch(root),
+});
 
 registerWorktreeRoutes({ fastify, worktrees, scanner, reaper, store });
 registerTmuxRoutes({ fastify });

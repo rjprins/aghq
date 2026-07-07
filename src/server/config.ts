@@ -76,7 +76,11 @@ export const AZURE_PR_AUTO_SUBMIT = process.env.AGMUX_AZURE_PR_AUTO_SUBMIT === "
 
 export const DEFAULT_BASE_BRANCH = "main";
 const DEFAULT_TMUX_SESSION = `agmux-${PORT}`;
-export const AGMUX_SESSION = process.env.AGMUX_TMUX_SESSION ?? DEFAULT_TMUX_SESSION;
+// Inside an agmux-managed pane the inherited value is a window target like
+// "agmux-4821:@31" — ':' is invalid in a session name, so ignore those.
+const inheritedTmuxSession = (process.env.AGMUX_TMUX_SESSION ?? "").trim();
+export const AGMUX_SESSION =
+  inheritedTmuxSession && !inheritedTmuxSession.includes(":") ? inheritedTmuxSession : DEFAULT_TMUX_SESSION;
 
 export function isLoopbackHost(host: string): boolean {
   const normalized = host.trim().toLowerCase();

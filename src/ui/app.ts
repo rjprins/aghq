@@ -53,6 +53,7 @@ import {
   isMainWorktreeForCwd,
   type KnownWorktreeSummary,
 } from "./worktree-match";
+import { rowMatchesFilter } from "./worktree-filter";
 import {
   compareSidebarGroupKeys,
   findNextReadyRunningPty,
@@ -1550,6 +1551,13 @@ function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+/** API failure that keeps the HTTP status so callers can tell "route missing" (404) apart. */
+class ApiHttpError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+  }
+}
+
 async function readApiError(res: Response): Promise<string> {
   try {
     const json = (await res.json()) as { error?: unknown };
@@ -2522,8 +2530,10 @@ type CloseWorktreeModalState = {
   closing: boolean;
   /** Classification evidence from the worktree scan, when available. */
   evidence: string | null;
-  /** Scan row snapshot used to reap safely (TOCTOU guard). Null → legacy DELETE. */
+  /** Scan row snapshot used to reap safely (TOCTOU guard). Null → removal stays disabled. */
   reapRow: { head: string; statusHash: string | null } | null;
+  /** True once the scan settled; with reapRow still null the row is missing. */
+  scanDone: boolean;
 };
 
 let closeWorktreeModalState: CloseWorktreeModalState | null = null;
@@ -2545,6 +2555,7 @@ function renderCloseWorktreeModalState(): void {
       changes: state.changes,
       closing: state.closing,
       evidence: state.evidence,
+      scanState: state.reapRow ? "ready" : state.scanDone ? "missing" : "loading",
     }
     : null;
 
@@ -2561,40 +2572,47 @@ function renderCloseWorktreeModalState(): void {
       void killPtyDirect(ptyId);
     },
     onCloseAndRemove: () => {
-      if (!closeWorktreeModalState || closeWorktreeModalState.closing) return;
-      closeWorktreeModalState.closing = true;
+      const st = closeWorktreeModalState;
+      if (!st || st.closing) return;
+      const { ptyId, worktreePath, reapRow, dirty } = st;
+      // The button is disabled without a scan row; never force-delete without the guard.
+      if (!reapRow) return;
+      st.closing = true;
       renderCloseWorktreeModalState();
-      const { ptyId, worktreePath, reapRow } = closeWorktreeModalState;
       void (async () => {
         await killPtyDirect(ptyId);
-        const legacyDelete = async () => {
-          try {
-            await authFetch("/api/worktrees", {
-              method: "DELETE",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ path: worktreePath }),
-            });
-          } catch {
-            // ignore worktree removal failure
+        let failure: string | null = null;
+        try {
+          const result = await postWorktreeReap({
+            path: worktreePath,
+            expectedHead: reapRow.head,
+            expectedStatusHash: reapRow.statusHash ?? undefined,
+            salvage: true,
+            deleteBranch: "auto",
+          });
+          // A guard abort is a deliberate refusal: do not force-delete.
+          if (!result.ok) failure = result.reason ?? "unknown reason";
+        } catch (err) {
+          if (err instanceof ApiHttpError && err.status === 404 && dirty === false) {
+            // Older server without the reap route; the worktree is clean, so plain removal is safe.
+            try {
+              const res = await authFetch("/api/worktrees", {
+                method: "DELETE",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ path: worktreePath }),
+              });
+              if (!res.ok) failure = await readApiError(res);
+            } catch (delErr) {
+              failure = errorMessage(delErr);
+            }
+          } else {
+            failure = errorMessage(err);
           }
-        };
-        if (reapRow) {
-          try {
-            const result = await postWorktreeReap({
-              path: worktreePath,
-              expectedHead: reapRow.head,
-              expectedStatusHash: reapRow.statusHash ?? undefined,
-              salvage: true,
-              deleteBranch: "auto",
-            });
-            // A guard abort is a deliberate refusal: do not force-delete.
-            if (!result.ok) addEvent(`Worktree reap aborted: ${result.reason ?? "unknown reason"}`);
-          } catch {
-            // Reap endpoint unavailable: fall back to the legacy removal.
-            await legacyDelete();
-          }
-        } else {
-          await legacyDelete();
+        }
+        if (failure != null) {
+          const msg = `Worktree was NOT removed: ${failure}`;
+          addEvent(msg);
+          window.alert(msg);
         }
         closeWorktreeModalState = null;
         renderCloseWorktreeModalState();
@@ -2631,6 +2649,7 @@ function openCloseWorktreeModal(ptyId: string): void {
     closing: false,
     evidence: null,
     reapRow: null,
+    scanDone: false,
   };
   renderCloseWorktreeModalState();
 
@@ -2638,14 +2657,19 @@ function openCloseWorktreeModal(ptyId: string): void {
   void fetchWorktreesFull(p.projectRoot ?? p.cwd)
     .then((full) => {
       if (!closeWorktreeModalState || closeWorktreeModalState.ptyId !== ptyId) return;
+      closeWorktreeModalState.scanDone = true;
       const row = full.worktrees.find((w) => w.path === worktreePath);
-      if (!row) return;
-      closeWorktreeModalState.evidence = row.evidence || null;
-      closeWorktreeModalState.reapRow = row.head ? { head: row.head, statusHash: row.statusHash ?? null } : null;
+      if (row) {
+        closeWorktreeModalState.evidence = row.evidence || null;
+        closeWorktreeModalState.reapRow = row.head ? { head: row.head, statusHash: row.statusHash ?? null } : null;
+      }
       renderCloseWorktreeModalState();
     })
     .catch(() => {
-      // Scan API unavailable: keep the legacy DELETE path.
+      // Scan API unavailable: removal stays disabled rather than falling back to force-delete.
+      if (!closeWorktreeModalState || closeWorktreeModalState.ptyId !== ptyId) return;
+      closeWorktreeModalState.scanDone = true;
+      renderCloseWorktreeModalState();
     });
 
   // Fetch dirty status
@@ -2709,7 +2733,7 @@ async function postWorktreeReap(body: ReapRequest): Promise<ReapResult> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  if (!res.ok) throw new Error(await readApiError(res));
+  if (!res.ok) throw new ApiHttpError(await readApiError(res), res.status);
   return (await res.json()) as ReapResult;
 }
 
@@ -2764,7 +2788,8 @@ function renderWorktreesPanelState(): void {
     },
     onRescan: () => {
       const st = worktreesPanelState;
-      if (!st || st.rescanning) return;
+      // No rescan while a reap batch runs: it would null the batch state mid-iteration.
+      if (!st || st.rescanning || (st.reapAll && st.reapAll.done < st.reapAll.total)) return;
       st.rescanning = true;
       st.error = null;
       st.reapAll = null;
@@ -2795,35 +2820,44 @@ function renderWorktreesPanelState(): void {
     },
     onReapAllSafe: () => {
       const st = worktreesPanelState;
-      if (!st || (st.reapAll && st.reapAll.done < st.reapAll.total)) return;
-      const rows = (st.data?.worktrees ?? []).filter((w) => w.reapClass === "reap-safe" && w.head);
+      if (!st || st.rescanning || (st.reapAll && st.reapAll.done < st.reapAll.total)) return;
+      const q = st.filter.trim().toLowerCase();
+      const allSafe = (st.data?.worktrees ?? []).filter((w) => w.reapClass === "reap-safe" && w.head);
+      // Reap only the rows the user can currently see.
+      const rows = allSafe.filter((w) => rowMatchesFilter(w, q));
       if (rows.length === 0) return;
-      if (!window.confirm(`Reap ${rows.length} merged worktree(s)? Branches are attic-tagged before deletion.`)) return;
+      const filterNote = q ? ` ${rows.length} of ${allSafe.length} reapable match the filter.` : "";
+      if (!window.confirm(`Reap ${rows.length} merged worktree(s)?${filterNote} Branches are attic-tagged before deletion.`)) return;
       st.reapAll = { total: rows.length, done: 0, freedBytes: 0, failures: 0 };
       renderWorktreesPanelState();
       void (async () => {
         for (const row of rows) {
           if (worktreesPanelState !== st || !st.reapAll) return;
+          let result: ReapResult | null = null;
+          let error: unknown = null;
           try {
-            const result = await postWorktreeReap({
+            result = await postWorktreeReap({
               path: row.path,
               expectedHead: row.head!,
               expectedStatusHash: row.statusHash ?? undefined,
               salvage: true,
               deleteBranch: "auto",
             });
-            if (result.ok) st.reapAll.freedBytes += result.freedBytes ?? 0;
-            else {
-              st.reapAll.failures += 1;
-              st.rowErrors.set(row.path, result.reason ?? "reap refused");
-            }
           } catch (err) {
+            error = err;
+          }
+          // The panel may have been closed/replaced while we awaited; bail without touching it.
+          if (worktreesPanelState !== st || !st.reapAll) return;
+          if (result?.ok) {
+            st.reapAll.freedBytes += result.freedBytes ?? 0;
+          } else {
             st.reapAll.failures += 1;
-            st.rowErrors.set(row.path, errorMessage(err));
+            st.rowErrors.set(row.path, result ? result.reason ?? "reap refused" : errorMessage(error));
           }
           st.reapAll.done += 1;
           renderWorktreesPanelState();
         }
+        if (worktreesPanelState !== st) return;
         await refetchWorktreesPanel(st);
         void refreshWorktreeCache().then(() => renderList());
       })();

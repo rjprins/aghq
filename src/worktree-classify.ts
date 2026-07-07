@@ -232,7 +232,8 @@ function decideState(input: ClassifyInput): StateDecision {
     const facts: string[] = [];
     if (input.liveSessionCount > 0) facts.push(plural(input.liveSessionCount, "live session"));
     if (lastCommitAt != null) facts.push(`last commit ${isoDate(lastCommitAt)}`);
-    if (input.lastSessionActivityAt != null) facts.push(`session activity ${isoDate(input.lastSessionActivityAt)}`);
+    // Neutral wording: the timestamp may come from the reflog, not a session.
+    if (input.lastSessionActivityAt != null) facts.push(`activity ${isoDate(input.lastSessionActivityAt)}`);
     return { state: "active", reapClass: null, evidence: facts.join(" · ") };
   }
 
@@ -286,9 +287,11 @@ function classifyMerged(input: ClassifyInput, clean: boolean, upstreamGone: bool
   const tipAhead = input.mergeSourceSha != null && head !== input.mergeSourceSha;
   const abandoned = input.prStatus === "abandoned";
   const bigIgnored = input.ignoredBytes != null && input.ignoredBytes >= IGNORED_BYTES_LIMIT;
-  // A gone upstream alone proves deletion, not merging — demand a PR record or ancestry.
-  const mergeUnproven =
-    upstreamGone && input.prStatus == null && input.mergeSourceSha == null && input.ancestryMerged !== true;
+  // A gone upstream alone proves deletion, not merging — demand a completed PR,
+  // a merge-source sha, or ancestry. A stale non-completed prStatus is no proof.
+  const mergeProven =
+    input.prStatus === "completed" || input.mergeSourceSha != null || input.ancestryMerged === true;
+  const mergeUnproven = upstreamGone && !mergeProven;
 
   const facts: string[] = [];
   if (input.prStatus === "completed") {
@@ -301,7 +304,9 @@ function classifyMerged(input: ClassifyInput, clean: boolean, upstreamGone: bool
   } else if (upstreamGone) {
     facts.push("upstream gone");
     if (input.ancestryMerged === true) facts.push("merged into default branch");
-    else if (mergeUnproven) facts.push("merge unproven (no PR record)");
+    else if (mergeUnproven) {
+      facts.push(input.prStatus == null ? "merge unproven (no PR record)" : "merge unproven (PR not completed)");
+    }
   } else {
     facts.push("merged into default branch (ancestry)");
   }
@@ -328,12 +333,15 @@ function classifyMerged(input: ClassifyInput, clean: boolean, upstreamGone: bool
 
 function computeOverlays(input: ClassifyInput): WorktreeOverlays {
   const { wt, ref, status } = input;
+  const sanitized = sanitizeBranchName(wt.branch);
+  const base = path.basename(wt.path);
   return {
     dirty: status?.dirty ?? false,
     ignoredOnly: status?.ignoredOnly ?? false,
     unpushedCount: input.unpushedCount,
-    // Primary worktree dirs are named after the repo, not the branch.
-    drifted: !input.isPrimary && wt.branch !== "" && path.basename(wt.path) !== sanitizeBranchName(wt.branch),
+    // Primary dirs are named after the repo; template dirs carry a prefix
+    // ("{repo-name}-{branch}"), so a "-<branch>" suffix is conformant too.
+    drifted: !input.isPrimary && wt.branch !== "" && !(base === sanitized || base.endsWith(`-${sanitized}`)),
     offConvention: input.templatePath != null && path.resolve(wt.path) !== input.templatePath,
     locked: wt.locked,
     prunable: wt.prunable,
