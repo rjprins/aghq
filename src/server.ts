@@ -108,8 +108,10 @@ const scanner = createWorktreeScanner({
     // Poller only decorates active PRs, so presence means an open PR.
     return pr ? { id: pr.id, title: pr.title, status: "active" } : null;
   },
-  lookupMergeProof: AZURE_PR_ENABLED ? lookupMergeProof : undefined,
-  lookupPrById: AZURE_PR_ENABLED ? lookupPrProofById : undefined,
+  // On-demand proof lookups are independent of the poller: they no-op for
+  // repos without an Azure remote, so wire them unconditionally.
+  lookupMergeProof,
+  lookupPrById: lookupPrProofById,
   getWorktreeTemplate: () => worktrees.getWorktreeTemplate(),
   resolveDefaultBranch: (root) => worktrees.defaultBranch(root),
 });
