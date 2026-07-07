@@ -114,7 +114,13 @@ const scanner = createWorktreeScanner({
   lookupPrById: lookupPrProofById,
   getWorktreeTemplate: () => worktrees.getWorktreeTemplate(),
   resolveDefaultBranch: (root) => worktrees.defaultBranch(root),
+  // Fresh annotations should reach sidebars without waiting for the next
+  // organic pty_list broadcast.
+  onScanned: () => void runtime.broadcastPtyList().catch(() => {}),
 });
+// Runtime is constructed before the scanner (the scanner needs listPtys), so
+// its worktree-annotation lookup is late-bound here. Cache reads only.
+runtime.setWorktreeScanLookup((repoRoot) => scanner.getCached(repoRoot));
 const reaper = createReapService({
   store,
   logger: fastify.log,
@@ -213,3 +219,5 @@ if (AZURE_PR_ENABLED) {
 // Daily worktree sweep + one-time tombstone backfill for the server's own repo.
 scanner.startSweep();
 void scanner.backfillTombstones(REPO_ROOT).catch(() => {});
+// Prime the scan cache so sidebar worktree badges appear without opening the panel.
+void scanner.scan(REPO_ROOT).catch(() => {});

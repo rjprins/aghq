@@ -1,3 +1,5 @@
+import type { ReapClass, WorktreeState } from "./worktrees.js";
+
 export type PtyId = string;
 
 export type PtyStatus = "running" | "exited";
@@ -35,6 +37,21 @@ export type PrSummary = {
   votes: { by: string; vote: PrReviewVote }[];
 };
 
+/**
+ * Lifecycle annotation for the worktree a session lives in, taken from the
+ * worktree scanner's cache. Absent when the project has no cached scan.
+ */
+export type PtyWorktreeInfo = {
+  path: string;
+  isPrimary: boolean;
+  state: WorktreeState;
+  reapClass: ReapClass;
+  /** One-line context: label, PR title, or recovered first prompt. */
+  context: string | null;
+  lastActivityAt: number | null;
+  stack: string | null;
+};
+
 export type PtySummary = {
   id: PtyId;
   name: string;
@@ -55,6 +72,7 @@ export type PtySummary = {
   cwd: string | null;
   projectRoot?: string | null;
   worktree?: string | null;
+  worktreeInfo?: PtyWorktreeInfo | null;
   createdAt: number;
   lastSeenAt?: number;
   status: PtyStatus;

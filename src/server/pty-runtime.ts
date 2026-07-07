@@ -5,8 +5,9 @@ import { ReadinessEngine, type PtyReadyEvent } from "../readiness/engine.js";
 import { TriggerEngine } from "../triggers/engine.js";
 import { TriggerLoader } from "../triggers/loader.js";
 import { WsHub } from "../ws/hub.js";
-import type { AgentProvider, PrSummary, PtySummary, ServerToClientMessage } from "../types.js";
+import type { AgentProvider, PrSummary, PtySummary, PtyWorktreeInfo, ServerToClientMessage } from "../types.js";
 import type { SqliteStore } from "../persist/sqlite.js";
+import type { WorktreesFullResponse } from "../shared/worktrees.js";
 import { projectRootFromCwdAny, worktreeFromCwdAny } from "../worktree.js";
 import {
   tmuxCaptureHistoryRegion,
@@ -69,6 +70,32 @@ export function createRuntime(deps: RuntimeDeps) {
   }
   function getPrStateForBranch(projectRoot: string, branch: string): PrSummary | null {
     return prStateByKey.get(prKey(projectRoot, branch)) ?? null;
+  }
+
+  // Worktree annotations come from the scanner's in-memory cache. The scanner
+  // is constructed after the runtime (it needs listPtys), so the lookup is
+  // late-bound like refreshWorktrees. Cache-only: never triggers git work.
+  let worktreeScanLookup: (repoRoot: string) => WorktreesFullResponse | null = () => null;
+  function setWorktreeScanLookup(fn: (repoRoot: string) => WorktreesFullResponse | null): void {
+    worktreeScanLookup = fn;
+  }
+
+  function worktreeInfoForCwd(scan: WorktreesFullResponse, cwd: string): PtyWorktreeInfo | null {
+    let best: WorktreesFullResponse["worktrees"][number] | null = null;
+    for (const wt of scan.worktrees) {
+      if (cwd !== wt.path && !cwd.startsWith(wt.path + "/")) continue;
+      if (!best || wt.path.length > best.path.length) best = wt;
+    }
+    if (!best) return null;
+    return {
+      path: best.path,
+      isPrimary: best.isPrimary,
+      state: best.state,
+      reapClass: best.reapClass,
+      context: best.label ?? best.prTitle ?? best.firstPrompt,
+      lastActivityAt: best.lastActivityAt,
+      stack: best.stack,
+    };
   }
 
   const readinessTrace: ReadinessTraceEntry[] = [];
@@ -223,6 +250,7 @@ export function createRuntime(deps: RuntimeDeps) {
 
     const assignments = store.listActiveTaskAssignments(base.map((p) => p.id));
     const bySessionId = new Map(assignments.map((a) => [a.sessionId, a]));
+    const scansByRoot = new Map<string, WorktreesFullResponse | null>();
 
     return base.map((summary) => {
       const assignment = bySessionId.get(summary.id);
@@ -230,11 +258,21 @@ export function createRuntime(deps: RuntimeDeps) {
       const projectRoot = projectRootFromCwdAny(summary.cwd ?? null);
       const worktree = worktreeFromCwdAny(summary.cwd ?? null);
       const pr = projectRoot && worktree ? prStateByKey.get(prKey(projectRoot, worktree)) ?? null : null;
+      let worktreeInfo: PtyWorktreeInfo | null = null;
+      if (projectRoot && summary.cwd) {
+        let scan = scansByRoot.get(projectRoot);
+        if (scan === undefined) {
+          scan = worktreeScanLookup(projectRoot);
+          scansByRoot.set(projectRoot, scan);
+        }
+        if (scan) worktreeInfo = worktreeInfoForCwd(scan, summary.cwd);
+      }
       const next = {
         ...summary,
         projectRoot,
         worktree,
         pr,
+        ...(worktreeInfo ? { worktreeInfo } : {}),
         ...(agentRef
           ? {
               agentProvider: agentRef.provider,
@@ -500,5 +538,6 @@ export function createRuntime(deps: RuntimeDeps) {
     getReadinessTrace,
     setPrStateForBranch,
     getPrStateForBranch,
+    setWorktreeScanLookup,
   };
 }

@@ -62,6 +62,8 @@ export type WorktreeScannerDeps = {
   } | null>;
   getWorktreeTemplate: () => string;
   resolveDefaultBranch: (projectRoot: string | null) => Promise<string>;
+  /** Fires after each completed scan (e.g. to rebroadcast annotated pty lists). */
+  onScanned?: (repoRoot: string) => void;
 };
 
 export type ScanOptions = {
@@ -412,6 +414,7 @@ export function createWorktreeScanner(deps: WorktreeScannerDeps) {
       scannedAt: now,
     };
     lastScan.set(repoRoot, response);
+    deps.onScanned?.(repoRoot);
     return response;
   }
 

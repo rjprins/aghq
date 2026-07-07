@@ -1,4 +1,5 @@
 import { Fragment, render } from "preact";
+import type { ReapClass, WorktreeState } from "../shared/worktrees.js";
 
 const PAGE_SIZE = 8;
 const visiblePages = new Map<string, number>();
@@ -73,6 +74,11 @@ export type WorktreeSubgroup = {
   name: string;
   path: string;
   collapsed: boolean;
+  /** Lifecycle annotation from the scanner cache; null when unscanned. */
+  state: WorktreeState | null;
+  reapClass: ReapClass;
+  /** One-line context: label, PR title, or first prompt. */
+  context: string | null;
   items: RunningPtyItem[];
 };
 
@@ -452,8 +458,62 @@ function PtyItemRow(
 }
 
 
+function RunningWorktreeSubgroup(
+  { group, wt, handlers }: { group: PtyGroup; wt: WorktreeSubgroup; handlers: PtyListHandlers },
+) {
+  const landed = wt.state === "merged" && wt.reapClass === "reap-safe";
+  // Scoping the drag key to the subgroup keeps reordering within it; dragging
+  // across subgroup boundaries is disabled (worktree membership decides placement).
+  const dragKey = `${group.key}::wt:${wt.name}`;
+  return (
+    <Fragment key={`wt:${group.key}::${wt.name}`}>
+      <li
+        className={`worktree-subheader${wt.collapsed ? " collapsed" : ""}`}
+        title={wt.path || undefined}
+        onClick={() => handlers.onToggleWorktree(group.key, wt.name)}
+      >
+        <span className="group-chevron">{wt.collapsed ? "▶" : "▼"}</span>
+        <span className="worktree-subheader-name">{wt.name}</span>
+        {wt.state ? (
+          <span className={`wt-badge state state-${wt.state}`} title={`Worktree state: ${wt.state}`}>
+            {wt.state}
+          </span>
+        ) : null}
+        {landed ? (
+          <button
+            type="button"
+            className="wt-landed-pill"
+            title="Merged and safe to reap - open the worktrees panel"
+            aria-label={`Worktree ${wt.name} landed - open worktrees panel`}
+            onClick={(ev) => {
+              ev.preventDefault();
+              ev.stopPropagation();
+              handlers.onOpenWorktrees(group.key);
+            }}
+          >
+            landed — reap?
+          </button>
+        ) : null}
+        {wt.context ? (
+          <span className="worktree-subheader-context" title={wt.context}>{wt.context}</span>
+        ) : null}
+      </li>
+      {wt.collapsed
+        ? null
+        : (
+          <div className="worktree-subgroup">
+            {wt.items.map((item) => (
+              <PtyItemRow key={item.id} item={item} groupKey={dragKey} handlers={handlers} />
+            ))}
+          </div>
+        )}
+    </Fragment>
+  );
+}
+
 export function renderPtyList(root: Element, model: PtyListModel, handlers: PtyListHandlers): void {
-  const hasRunning = (group: PtyGroup) => group.items.length > 0;
+  const hasRunning = (group: PtyGroup) =>
+    group.items.length > 0 || group.worktrees.some((wt) => wt.items.length > 0);
   const isEmpty = model.groups.length === 0 && !model.inactive && !model.archived;
   render(
     <>
@@ -530,6 +590,14 @@ export function renderPtyList(root: Element, model: PtyListModel, handlers: PtyL
               <div className={model.showHeaders ? "group-body" : undefined}>
                 {group.items.map((item) => (
                   <PtyItemRow key={item.id} item={item} groupKey={group.key} handlers={handlers} />
+                ))}
+                {group.worktrees.map((wt) => (
+                  <RunningWorktreeSubgroup
+                    key={`wt:${group.key}::${wt.name}`}
+                    group={group}
+                    wt={wt}
+                    handlers={handlers}
+                  />
                 ))}
               </div>
             )}

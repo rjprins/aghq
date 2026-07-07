@@ -12,6 +12,7 @@ export type {
   PtyReadinessState,
   PtyStatus,
   PtySummary,
+  PtyWorktreeInfo,
   ServerToClientMessage,
   TmuxServer,
   TmuxSessionCheck,

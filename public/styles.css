@@ -3332,3 +3332,47 @@ button:disabled {
   color: var(--muted);
   font-size: 12px;
 }
+
+/* Running worktree subgroups (sidebar lifecycle nesting) */
+.worktree-subheader-name {
+  flex-shrink: 0;
+  max-width: 55%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.worktree-subheader-context {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 400;
+  text-transform: none;
+  color: var(--muted);
+  opacity: 0.8;
+}
+
+.worktree-subheader .wt-badge {
+  flex-shrink: 0;
+  font-size: 9px;
+  line-height: 1.5;
+  padding: 0 5px;
+}
+
+.wt-landed-pill {
+  flex-shrink: 0;
+  font-family: inherit;
+  font-size: 9px;
+  line-height: 1.5;
+  padding: 0 6px;
+  border-radius: 999px;
+  border: 1px solid var(--ready-glow);
+  background: color-mix(in srgb, var(--ready) 12%, transparent);
+  color: var(--ready);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.wt-landed-pill:hover {
+  background: color-mix(in srgb, var(--ready) 22%, transparent);
+}
