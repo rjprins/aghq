@@ -145,12 +145,14 @@ function InactiveItemRow(
       <div className="row">
         <div className="mainline">
           <div className="primary-row">
-            <span className="inactive-dot" title={`Restorable (${item.exitLabel})`} />
+            <span
+              className="inactive-dot"
+              title={`Restorable (${item.exitLabel})${item.elapsed ? `\nInactive for ${item.elapsed}` : ""}`}
+            />
             {!inWorktree && item.worktree
               ? <span className="worktree-badge" title={item.cwd ?? ""}>{item.worktree}</span>
               : null}
             <div className="primary">{item.process}</div>
-            {item.elapsed ? <span className="time-badge inactive" title={`Inactive for ${item.elapsed}`}>{item.elapsed}</span> : null}
           </div>
         </div>
         <button
@@ -167,7 +169,10 @@ function InactiveItemRow(
           {">"}
         </button>
       </div>
-      <span className="inactive-dot compact" title={`Restorable: ${item.process}`} />
+      <span
+        className="inactive-dot compact"
+        title={`Restorable: ${item.process}${item.elapsed ? ` (inactive ${item.elapsed})` : ""}`}
+      />
     </li>
   );
 }
@@ -272,6 +277,13 @@ function PtyItemRow(
     ? `${item.prApprovalCount}/${item.prRequiredApprovals} approvals`
     : null;
   const agentIcon = agentIconKind(item.process);
+  const elapsedLine = item.elapsed
+    ? (item.readyState === "ready" ? `Ready for ${item.elapsed}` : `Processing for ${item.elapsed}`)
+    : "";
+  const readyTooltip = [
+    `PTY is ${item.readyState}${item.readyReason ? ` (${item.readyReason})` : ""}`,
+    elapsedLine,
+  ].filter(Boolean).join("\n");
 
   return (
     <li
@@ -353,23 +365,11 @@ function PtyItemRow(
       <div className="row">
         <div className="mainline">
           <div className="primary-row">
-            <span className="status-group">
-              <span
-                className={`ready-dot ${item.readyIndicator}`}
-                title={`PTY is ${item.readyState}${item.readyReason ? ` (${item.readyReason})` : ""}`}
-                aria-label={`PTY is ${item.readyState}`}
-              />
-              {item.elapsed
-                ? (
-                  <span
-                    className={`time-badge ${item.readyState === "ready" ? "ready" : "busy"}`}
-                    title={item.readyState === "ready" ? `Ready for ${item.elapsed}` : `Processing for ${item.elapsed}`}
-                  >
-                    {item.elapsed}
-                  </span>
-                )
-                : null}
-            </span>
+            <span
+              className={`ready-dot ${item.readyIndicator}`}
+              title={readyTooltip}
+              aria-label={`PTY is ${item.readyState}`}
+            />
             <div className="primary">{item.name}</div>
             <button
               type="button"
@@ -470,7 +470,10 @@ function PtyItemRow(
           {"\u23f9"}
         </button>
       </div>
-      <span className={`ready-dot compact ${item.readyIndicator}`} title={`${item.name} - ${item.readyState}`} />
+      <span
+        className={`ready-dot compact ${item.readyIndicator}`}
+        title={`${item.name} - ${item.readyState}${item.elapsed ? ` for ${item.elapsed}` : ""}`}
+      />
     </li>
   );
 }
@@ -499,7 +502,19 @@ export function renderPtyList(root: Element, model: PtyListModel, handlers: PtyL
               <span className="group-header-actions">
                 <button
                   type="button"
-                  className="group-action-btn"
+                  className="group-action-btn group-worktrees-btn"
+                  title="Worktrees\u2026"
+                  aria-label={`Worktrees for ${group.label}`}
+                  onClick={(ev) => {
+                    ev.stopPropagation();
+                    handlers.onOpenWorktrees(group.key);
+                  }}
+                >
+                  {"\u2442"}
+                </button>
+                <button
+                  type="button"
+                  className={`group-action-btn${group.pinned ? " pinned" : ""}`}
                   title={group.pinned ? "Unpin" : "Pin"}
                   onClick={(ev) => {
                     ev.stopPropagation();
@@ -521,18 +536,6 @@ export function renderPtyList(root: Element, model: PtyListModel, handlers: PtyL
                     {"\u21ba"}
                   </button>
                 ) : null}
-                <button
-                  type="button"
-                  className="group-action-btn group-worktrees-btn"
-                  title="Worktrees\u2026"
-                  aria-label={`Worktrees for ${group.label}`}
-                  onClick={(ev) => {
-                    ev.stopPropagation();
-                    handlers.onOpenWorktrees(group.key);
-                  }}
-                >
-                  {"\u2442"}
-                </button>
                 <button
                   type="button"
                   className="group-launch"
@@ -584,6 +587,18 @@ export function renderPtyList(root: Element, model: PtyListModel, handlers: PtyL
                       <span className="group-header-actions">
                         <button
                           type="button"
+                          className="group-action-btn group-worktrees-btn"
+                          title="Worktrees\u2026"
+                          aria-label={`Worktrees for ${group.label}`}
+                          onClick={(ev) => {
+                            ev.stopPropagation();
+                            handlers.onOpenWorktrees(group.key);
+                          }}
+                        >
+                          {"\u2442"}
+                        </button>
+                        <button
+                          type="button"
                           className="group-action-btn"
                           title="Pin"
                           onClick={(ev) => {
@@ -592,6 +607,17 @@ export function renderPtyList(root: Element, model: PtyListModel, handlers: PtyL
                           }}
                         >
                           {"\u2606"}
+                        </button>
+                        <button
+                          type="button"
+                          className="group-action-btn"
+                          title="Archive"
+                          onClick={(ev) => {
+                            ev.stopPropagation();
+                            handlers.onArchive(group.key);
+                          }}
+                        >
+                          {"\u2193"}
                         </button>
                         {group.total > 0 ? (
                           <button
@@ -606,29 +632,6 @@ export function renderPtyList(root: Element, model: PtyListModel, handlers: PtyL
                             {"\u21ba"}
                           </button>
                         ) : null}
-                        <button
-                          type="button"
-                          className="group-action-btn group-worktrees-btn"
-                          title="Worktrees\u2026"
-                          aria-label={`Worktrees for ${group.label}`}
-                          onClick={(ev) => {
-                            ev.stopPropagation();
-                            handlers.onOpenWorktrees(group.key);
-                          }}
-                        >
-                          {"\u2442"}
-                        </button>
-                        <button
-                          type="button"
-                          className="group-action-btn"
-                          title="Archive"
-                          onClick={(ev) => {
-                            ev.stopPropagation();
-                            handlers.onArchive(group.key);
-                          }}
-                        >
-                          {"\u2193"}
-                        </button>
                         <button
                           type="button"
                           className="group-launch"
@@ -672,6 +675,17 @@ export function renderPtyList(root: Element, model: PtyListModel, handlers: PtyL
                     >
                       <span>{group.label}</span>
                       <span className="group-header-actions">
+                        <button
+                          type="button"
+                          className="group-action-btn"
+                          title="Unarchive"
+                          onClick={(ev) => {
+                            ev.stopPropagation();
+                            handlers.onUnarchive(group.key);
+                          }}
+                        >
+                          {"\u2191"}
+                        </button>
                         {group.total > 0 ? (
                           <button
                             type="button"
@@ -685,17 +699,6 @@ export function renderPtyList(root: Element, model: PtyListModel, handlers: PtyL
                             {"\u21ba"}
                           </button>
                         ) : null}
-                        <button
-                          type="button"
-                          className="group-action-btn"
-                          title="Unarchive"
-                          onClick={(ev) => {
-                            ev.stopPropagation();
-                            handlers.onUnarchive(group.key);
-                          }}
-                        >
-                          {"\u2191"}
-                        </button>
                         <button
                           type="button"
                           className="group-launch"

@@ -198,7 +198,6 @@ body.sidebar-resizing {
 .sidebar.collapsed .pty-item .secondary,
 .sidebar.collapsed .pty-item .pty-close,
 .sidebar.collapsed .pty-item .title-label,
-.sidebar.collapsed .pty-item .time-badge,
 .sidebar.collapsed .pty-item .worktree-badge {
   display: none;
 }
@@ -496,10 +495,6 @@ button:disabled {
   min-width: 20px;
   font-size: 10px;
 }
-.pty-item.inactive .time-badge {
-  font-size: 9px;
-}
-
 .pty-item.inactive:hover {
   opacity: 0.85;
   background: color-mix(in srgb, var(--surface) 70%, transparent);
@@ -546,13 +541,6 @@ button:disabled {
   align-items: center;
   gap: 6px;
   min-width: 0;
-}
-
-.pty-item .status-group {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  flex: 0 0 auto;
 }
 
 .pty-item .ready-dot {
@@ -646,31 +634,6 @@ button:disabled {
   font-weight: 400;
   opacity: 0.5;
   font-size: 10px;
-}
-
-.pty-item .time-badge {
-  font-size: 11px;
-  font-weight: 500;
-  padding: 1px 6px;
-  border-radius: 6px;
-  flex: 0 0 auto;
-  margin-left: auto;
-  font-variant-numeric: tabular-nums;
-}
-
-.pty-item .time-badge.ready {
-  color: var(--ready);
-  background: rgba(95, 209, 140, 0.12);
-}
-
-.pty-item .time-badge.busy {
-  color: var(--busy);
-  background: rgba(255, 184, 112, 0.12);
-}
-
-.pty-item .time-badge.inactive {
-  color: var(--muted);
-  background: color-mix(in srgb, var(--muted) 15%, transparent);
 }
 
 .pty-item .title-label {
@@ -1923,13 +1886,17 @@ button:disabled {
   opacity: 0;
   flex-shrink: 0;
 }
-.pty-group-header:hover .group-action-btn,
-.worktree-subheader:hover .group-action-btn {
+.pty-group-header:hover .group-action-btn {
   opacity: 0.5;
 }
 .group-action-btn:hover {
   opacity: 1 !important;
   color: var(--text);
+}
+/* Pinned is state, not just an action - keep the star visible */
+.group-action-btn.pinned,
+.pty-group-header:hover .group-action-btn.pinned {
+  opacity: 0.7;
 }
 
 .pty-group-header.pinned-empty {
