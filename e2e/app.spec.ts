@@ -761,6 +761,21 @@ test("clicking a history entry scrolls the terminal to that command", async ({ p
   // back and the marker becomes visible in the terminal viewport again.
   await expect.poll(dumpViewport, { timeout: 10_000 }).toContain("__scroll_target__");
 
+  // Picking an entry dismissed the dropdown.
+  await expect(page.locator("#input-history-list")).toHaveClass(/hidden/);
+
+  // Clicking outside dismisses it too.
+  await page.locator("#input-context-toggle").click();
+  await expect(page.locator("#input-history-list")).not.toHaveClass(/hidden/);
+  await page.locator("#terminal").click();
+  await expect(page.locator("#input-history-list")).toHaveClass(/hidden/);
+
+  // As does Escape.
+  await page.locator("#input-context-toggle").click();
+  await expect(page.locator("#input-history-list")).not.toHaveClass(/hidden/);
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#input-history-list")).toHaveClass(/hidden/);
+
   // Cleanup.
   const ptyId = await page.locator(".pty-item.active").evaluate((el) => el.getAttribute("data-pty-id"));
   if (ptyId) {
@@ -1415,11 +1430,14 @@ test("input context bar keeps recent history visible across PTY switches", async
 
     await expect(page.locator("#input-context-last")).toContainText("echo __ctx_pty_two__", { timeout: 10_000 });
     await expect(page.locator("#input-history-label")).toHaveText(/History \(\d+\)/, { timeout: 10_000 });
+    // The dropdown auto-closed when clicking elsewhere; reopen to inspect it.
+    await page.locator("#input-context-toggle").click();
     await expect(page.locator("#input-history-list")).toContainText("echo __ctx_pty_two__", { timeout: 10_000 });
 
     await page.locator(`.pty-item[data-pty-id="${ptyOne}"]`).click();
     await expect(page.locator("#input-context-last")).toHaveText(/pwd|echo __ctx_pty_two__/, { timeout: 10_000 });
     await expect(page.locator("#input-history-label")).toHaveText(/History \(\d+\)/, { timeout: 10_000 });
+    await page.locator("#input-context-toggle").click();
     await expect(page.locator("#input-history-list")).toContainText("echo __ctx_pty_one__", { timeout: 10_000 });
     await expect(page.locator("#input-history-list")).toContainText("echo __ctx_pty_two__", { timeout: 10_000 });
   } finally {

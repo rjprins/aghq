@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import path from "node:path";
 import type { FastifyBaseLogger } from "fastify";
 import { PtyManager } from "../pty/manager.js";
@@ -8,7 +9,7 @@ import { WsHub } from "../ws/hub.js";
 import type { AgentProvider, PrSummary, PtySummary, PtyWorktreeInfo, ServerToClientMessage } from "../types.js";
 import type { SqliteStore } from "../persist/sqlite.js";
 import type { WorktreesFullResponse } from "../shared/worktrees.js";
-import { projectRootFromCwdAny, worktreeFromCwdAny } from "../worktree.js";
+import { branchAtCwd, branchForPathInRepo, projectRootFromCwdAny, worktreeFromCwdAny } from "../worktree.js";
 import {
   tmuxCaptureHistoryRegion,
   tmuxCreateLinkedSession,
@@ -24,7 +25,7 @@ import {
   type TmuxServer,
 } from "../tmux.js";
 import type { TriggerSpawnShellOptions } from "../triggers/types.js";
-import { findActiveLogSessionByCwd, readConversationMessages } from "../logSessions.js";
+import { findActiveLogSessionByCwd, findLogFileForSession, readConversationMessages, recentMutatedPaths } from "../logSessions.js";
 import { historyNeedle, InputAnchorStore, locateInLines } from "./history-scroll.js";
 
 export type RuntimeDeps = {
@@ -96,6 +97,17 @@ export function createRuntime(deps: RuntimeDeps) {
       lastActivityAt: best.lastActivityAt,
       stack: best.stack,
     };
+  }
+
+  // The branch an agent is actually *editing* (worktree of its most recent
+  // mutation), which can differ from its process cwd. Used only as a PR-match
+  // fallback when the cwd's branch has no PR. Refreshed by a timer below; the
+  // hot path (listPtys) just reads this map. mtime-gated per log so unchanged
+  // transcripts aren't re-parsed.
+  const activeEditBranchByPty = new Map<string, string>();
+  const mutatedPathsCache = new Map<string, { mtimeMs: number; paths: string[] }>();
+  function getActiveEditBranch(ptyId: string): string | null {
+    return activeEditBranchByPty.get(ptyId) ?? null;
   }
 
   const readinessTrace: ReadinessTraceEntry[] = [];
@@ -244,6 +256,62 @@ export function createRuntime(deps: RuntimeDeps) {
     void autoAttachSweep().catch(() => {});
   }, autoAttachIntervalMs);
 
+  // Recompute activeEditBranchByPty from each attached agent's transcript: the
+  // most recent mutated file that maps into one of the session repo's worktrees
+  // wins ("current focus"). Only mutating tools count, so cross-worktree reads
+  // don't misattribute. Falls back to nothing (map cleared) when the agent is
+  // editing outside the repo or not editing at all.
+  function refreshActiveEditBranchForPty(p: PtySummary): void {
+    const ref = agentSessions.attachedAgentSessionForPty(p.id);
+    const projectRoot = projectRootFromCwdAny(p.cwd ?? null);
+    if (!ref || !projectRoot) {
+      activeEditBranchByPty.delete(p.id);
+      return;
+    }
+    const logPath = findLogFileForSession(ref.provider, ref.providerSessionId);
+    if (!logPath) {
+      activeEditBranchByPty.delete(p.id);
+      return;
+    }
+    let paths: string[];
+    try {
+      const mtimeMs = fs.statSync(logPath).mtimeMs;
+      const cached = mutatedPathsCache.get(logPath);
+      if (cached && cached.mtimeMs === mtimeMs) {
+        paths = cached.paths;
+      } else {
+        paths = recentMutatedPaths(logPath);
+        mutatedPathsCache.set(logPath, { mtimeMs, paths });
+      }
+    } catch {
+      activeEditBranchByPty.delete(p.id);
+      return;
+    }
+    let branch: string | null = null;
+    for (const fp of paths) {
+      branch = branchForPathInRepo(fp, projectRoot);
+      if (branch) break;
+    }
+    if (branch) activeEditBranchByPty.set(p.id, branch);
+    else activeEditBranchByPty.delete(p.id);
+  }
+
+  function refreshActiveEditBranches(): void {
+    const running = ptys.list().filter((p) => p.status === "running");
+    const live = new Set(running.map((p) => p.id));
+    for (const id of [...activeEditBranchByPty.keys()]) {
+      if (!live.has(id)) activeEditBranchByPty.delete(id);
+    }
+    for (const p of running) refreshActiveEditBranchForPty(p);
+  }
+  setInterval(() => {
+    try {
+      refreshActiveEditBranches();
+    } catch {
+      // best-effort; PR fallback simply won't update this tick
+    }
+  }, autoAttachIntervalMs);
+
   async function listPtys(): Promise<PtySummary[]> {
     const base = await readinessEngine.withActiveProcesses(ptys.list());
     if (base.length === 0) return base;
@@ -257,7 +325,16 @@ export function createRuntime(deps: RuntimeDeps) {
       const agentRef = agentSessions.attachedAgentSessionForPty(summary.id);
       const projectRoot = projectRootFromCwdAny(summary.cwd ?? null);
       const worktree = worktreeFromCwdAny(summary.cwd ?? null);
-      const pr = projectRoot && worktree ? prStateByKey.get(prKey(projectRoot, worktree)) ?? null : null;
+      // PR matching keys on the branch actually checked out at the cwd (git HEAD),
+      // which — unlike `worktree` — also covers the main worktree when it has been
+      // switched to a feature/ticket branch. If that branch has no PR, fall back
+      // to the branch the agent is *editing* (its most recent mutation), which
+      // catches an agent working in a worktree other than its cwd.
+      const cwdBranch = branchAtCwd(summary.cwd ?? null) ?? worktree;
+      const editBranch = getActiveEditBranch(summary.id);
+      const pr =
+        (projectRoot && cwdBranch ? prStateByKey.get(prKey(projectRoot, cwdBranch)) ?? null : null) ??
+        (projectRoot && editBranch ? prStateByKey.get(prKey(projectRoot, editBranch)) ?? null : null);
       let worktreeInfo: PtyWorktreeInfo | null = null;
       if (projectRoot && summary.cwd) {
         let scan = scansByRoot.get(projectRoot);
@@ -373,6 +450,7 @@ export function createRuntime(deps: RuntimeDeps) {
     store.clearTaskAssignment(ptyId);
     readinessEngine.markExited(ptyId);
     agentSessions.detachPty(ptyId);
+    activeEditBranchByPty.delete(ptyId);
     inputAnchors.clear(ptyId);
     anchorSampledAt.delete(ptyId);
     logger.info({ ptyId, code, signal }, "pty exited");
@@ -539,5 +617,6 @@ export function createRuntime(deps: RuntimeDeps) {
     setPrStateForBranch,
     getPrStateForBranch,
     setWorktreeScanLookup,
+    getActiveEditBranch,
   };
 }

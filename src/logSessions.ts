@@ -1005,6 +1005,56 @@ export function readConversationMessages(logPath: string): ConversationMessage[]
   return messages;
 }
 
+// File-mutating tool names (case-insensitive). Read/Grep/Glob are excluded on
+// purpose: an agent reading a file in another worktree is not "working" there.
+const MUTATING_TOOL_NAMES = new Set(["edit", "write", "multiedit", "notebookedit"]);
+
+function mutatedPathFromToolUse(block: unknown): string | null {
+  if (!block || typeof block !== "object") return null;
+  const b = block as Record<string, unknown>;
+  if (b.type !== "tool_use") return null;
+  const name = typeof b.name === "string" ? b.name.toLowerCase() : "";
+  if (!MUTATING_TOOL_NAMES.has(name)) return null;
+  if (!b.input || typeof b.input !== "object") return null;
+  const input = b.input as Record<string, unknown>;
+  const fp =
+    typeof input.file_path === "string"
+      ? input.file_path
+      : typeof input.notebook_path === "string"
+        ? input.notebook_path
+        : null;
+  return fp && fp.trim() ? fp.trim() : null;
+}
+
+/**
+ * Absolute paths the agent has *mutated* (Edit/Write/MultiEdit/NotebookEdit),
+ * most-recent first, deduped. Read from the transcript tail, so it reflects
+ * recent activity rather than the whole session. Claude format only for now
+ * (assistant message tool_use blocks); other providers return their edits via
+ * different shapes and are handled elsewhere.
+ */
+export function recentMutatedPaths(logPath: string, opts: { limit?: number } = {}): string[] {
+  const limit = Math.max(1, Math.floor(opts.limit ?? 20));
+  const entries = parseLogTailEntries(logPath);
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (let i = entries.length - 1; i >= 0; i -= 1) {
+    const entry = entries[i];
+    if (!entry || entry.type !== "assistant") continue;
+    if (!entry.message || typeof entry.message !== "object") continue;
+    const content = (entry.message as Record<string, unknown>).content;
+    if (!Array.isArray(content)) continue;
+    for (const block of content) {
+      const fp = mutatedPathFromToolUse(block);
+      if (!fp || seen.has(fp)) continue;
+      seen.add(fp);
+      out.push(fp);
+      if (out.length >= limit) return out;
+    }
+  }
+  return out;
+}
+
 function parseTimestampMs(value: unknown): number | null {
   if (typeof value !== "string" || value.trim().length === 0) return null;
   const ms = Date.parse(value);

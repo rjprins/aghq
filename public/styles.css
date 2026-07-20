@@ -883,6 +883,8 @@ button:disabled {
   padding: 6px 8px;
   min-height: 0;
   min-width: 0;
+  /* Anchor for the floating history dropdown. */
+  position: relative;
 }
 
 .input-context.hidden {
@@ -1148,14 +1150,26 @@ button:disabled {
   flex: 0 0 auto;
 }
 
+/* Floating dropdown anchored to the input-context box, overlaying the
+   terminal instead of pushing it down. */
 .input-history-list {
-  margin: 8px 0 0;
-  padding: 0 0 0 18px;
-  max-height: 110px;
+  position: absolute;
+  top: calc(100% + 4px);
+  left: -1px;
+  right: -1px;
+  z-index: 40;
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  max-height: min(320px, 45vh);
   overflow-x: hidden;
   overflow-y: auto;
   display: grid;
-  gap: 4px;
+  gap: 2px;
 }
 
 .input-history-list.hidden {
@@ -1168,13 +1182,12 @@ button:disabled {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  padding: 3px 8px;
 }
 
 .input-history-list li.clickable {
   cursor: pointer;
-  border-radius: 4px;
-  padding: 1px 4px;
-  margin: -1px -4px;
+  border-radius: 5px;
 }
 
 .input-history-list li.clickable:hover {

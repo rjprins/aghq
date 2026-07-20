@@ -11,6 +11,9 @@ const worktreeCacheTime = new Map<string, number>();
 const WORKTREE_CACHE_TTL_MS = 30_000;
 const repoRootCache = new Map<string, string | null>();
 const repoRootCacheTime = new Map<string, number>();
+const branchCache = new Map<string, string | null>();
+const branchCacheTime = new Map<string, number>();
+const BRANCH_CACHE_TTL_MS = 10_000;
 
 function execGitQuietSync(args: string[], cwd: string): string {
   return execFileSync("git", args, {
@@ -162,6 +165,51 @@ export function worktreeFromCwdAny(cwd: string | null): string | null {
 }
 
 /**
+ * Resolve the branch actually checked out at `cwd` by reading git HEAD there.
+ * Unlike worktreeFromCwd, this covers the main worktree too, so a session in
+ * the primary checkout that was switched to a feature branch resolves to that
+ * branch. Returns null for a detached HEAD or a non-git cwd. Cached per cwd
+ * with a short TTL since it shells out to git.
+ */
+export function branchAtCwd(cwd: string | null): string | null {
+  if (!cwd) return null;
+  const cacheKey = path.resolve(cwd);
+  const updatedAt = branchCacheTime.get(cacheKey) ?? 0;
+  if (Date.now() - updatedAt <= BRANCH_CACHE_TTL_MS && branchCache.has(cacheKey)) {
+    return branchCache.get(cacheKey) ?? null;
+  }
+  let branch: string | null = null;
+  try {
+    const out = execGitQuietSync(["symbolic-ref", "--short", "-q", "HEAD"], cacheKey).trim();
+    branch = out.length > 0 ? out : null;
+  } catch {
+    branch = null; // detached HEAD or not a git repo
+  }
+  branchCache.set(cacheKey, branch);
+  branchCacheTime.set(cacheKey, Date.now());
+  return branch;
+}
+
+/**
+ * Map an absolute file path to the branch of the worktree that contains it,
+ * among `repoRoot`'s worktrees (longest-prefix match, main worktree included).
+ * Returns null when the path is outside every worktree of that repo. Used to
+ * tell which worktree an agent is *editing* when it differs from its cwd.
+ */
+export function branchForPathInRepo(filePath: string | null, repoRoot: string): string | null {
+  if (!filePath) return null;
+  const resolved = path.resolve(filePath);
+  const cache = getWorktreeCache(repoRoot);
+  let best: WorktreeEntry | null = null;
+  for (const entry of cache) {
+    if (resolved === entry.path || resolved.startsWith(entry.path + "/")) {
+      if (!best || entry.path.length > best.path.length) best = entry;
+    }
+  }
+  return best?.branch ? best.branch : null;
+}
+
+/**
  * Check if a path matches any known worktree (excluding the main one).
  */
 export function isKnownWorktree(checkPath: string, repoRoot: string): boolean {
@@ -182,6 +230,17 @@ export function _resetCacheForTesting(): void {
   worktreeCacheTime.clear();
   repoRootCache.clear();
   repoRootCacheTime.clear();
+  branchCache.clear();
+  branchCacheTime.clear();
+}
+
+/**
+ * Seed the branch-at-cwd cache directly (for testing).
+ */
+export function _setBranchCacheForTesting(cwd: string, branch: string | null): void {
+  const cacheKey = path.resolve(cwd);
+  branchCache.set(cacheKey, branch);
+  branchCacheTime.set(cacheKey, Date.now());
 }
 
 /**
