@@ -2833,7 +2833,10 @@ function renderInputContextBar(): void {
       li.textContent = entry.text;
       li.classList.add("clickable");
       li.title = `${entry.text}\n(click to scroll the terminal here)`;
-      li.onclick = () => scrollActiveTerminalToHistory(entry);
+      li.onclick = () => {
+        scrollActiveTerminalToHistory(entry);
+        collapseInputHistory();
+      };
       inputHistoryListEl.appendChild(li);
     }
   }
@@ -5093,6 +5096,12 @@ function toggleInputHistory(): void {
   renderInputContextBar();
 }
 
+function collapseInputHistory(): void {
+  if (!inputHistoryExpanded) return;
+  inputHistoryExpanded = false;
+  renderInputContextBar();
+}
+
 inputContextToggleEl.addEventListener("click", () => {
   toggleInputHistory();
 });
@@ -5102,6 +5111,20 @@ inputContextToggleEl.addEventListener("keydown", (ev) => {
   if (ev.key !== "Enter" && ev.key !== " ") return;
   ev.preventDefault();
   toggleInputHistory();
+});
+
+// The history dropdown behaves like a menu: clicking outside or pressing
+// Escape dismisses it.
+document.addEventListener("pointerdown", (ev) => {
+  if (!inputHistoryExpanded) return;
+  const target = ev.target as Element | null;
+  if (target?.closest("#input-context")) return;
+  collapseInputHistory();
+});
+
+document.addEventListener("keydown", (ev) => {
+  if (ev.key !== "Escape" || !inputHistoryExpanded) return;
+  collapseInputHistory();
 });
 
 type EmacsWorktreeAction = {
