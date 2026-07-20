@@ -1,5 +1,5 @@
 import { Fragment, render } from "preact";
-import type { ReapClass, WorktreeState } from "../shared/worktrees.js";
+import type { WorktreeState } from "../shared/worktrees.js";
 
 const PAGE_SIZE = 8;
 const visiblePages = new Map<string, number>();
@@ -35,6 +35,10 @@ export type RunningPtyItem = {
   title?: string;
   secondaryText: string;
   worktree?: string;
+  /** Lifecycle annotation from the scanner cache; shown in the pill tooltip. */
+  worktreeState?: WorktreeState;
+  /** Merged and reap-safe: the pill gets a "landed" affordance. */
+  worktreeLanded?: boolean;
   cwd?: string;
   elapsed?: string;
 };
@@ -70,25 +74,12 @@ export type InactiveWorktreeSubgroup = {
   items: InactivePtyItem[];
 };
 
-export type WorktreeSubgroup = {
-  name: string;
-  path: string;
-  collapsed: boolean;
-  /** Lifecycle annotation from the scanner cache; null when unscanned. */
-  state: WorktreeState | null;
-  reapClass: ReapClass;
-  /** One-line context: label, PR title, or first prompt. */
-  context: string | null;
-  items: RunningPtyItem[];
-};
-
 export type PtyGroup = {
   key: string;
   label: string;
   title?: string;
   pinned: boolean;
   collapsed: boolean;
-  worktrees: WorktreeSubgroup[];
   items: RunningPtyItem[];
   inactiveSessions: InactivePtyItem[];
   inactiveWorktrees: InactiveWorktreeSubgroup[];
@@ -112,7 +103,6 @@ export type PtyListModel = {
 
 export type PtyListHandlers = {
   onToggleGroup: (groupKey: string) => void;
-  onToggleWorktree: (groupKey: string, worktreeName: string) => void;
   onTogglePin: (groupKey: string) => void;
   onToggleInlineInactive: (groupKey: string) => void;
   onOpenReactivateProject: (groupKey: string) => void;
@@ -427,7 +417,27 @@ function PtyItemRow(
                 <span className="process-badge" title={`Active process: ${item.process}`}>{item.process}</span>
               ) : null}
               {item.worktree ? (
-                <span className="worktree-badge" title={item.cwd ?? ""}>{item.worktree}</span>
+                <span
+                  className="worktree-badge"
+                  title={[item.cwd, item.worktreeState ? `state: ${item.worktreeState}` : ""].filter(Boolean).join("\n")}
+                >
+                  {item.worktree}
+                </span>
+              ) : null}
+              {item.worktreeLanded ? (
+                <button
+                  type="button"
+                  className="wt-landed-pill"
+                  title="Worktree merged and safe to reap - open the worktrees panel"
+                  aria-label={`Worktree ${item.worktree ?? ""} landed - open worktrees panel`}
+                  onClick={(ev) => {
+                    ev.preventDefault();
+                    ev.stopPropagation();
+                    handlers.onOpenWorktrees(groupKey);
+                  }}
+                >
+                  landed — reap?
+                </button>
               ) : null}
               {item.title ? (
                 <span className="title-label" title={item.title}>{item.title}</span>
@@ -458,62 +468,8 @@ function PtyItemRow(
 }
 
 
-function RunningWorktreeSubgroup(
-  { group, wt, handlers }: { group: PtyGroup; wt: WorktreeSubgroup; handlers: PtyListHandlers },
-) {
-  const landed = wt.state === "merged" && wt.reapClass === "reap-safe";
-  // Scoping the drag key to the subgroup keeps reordering within it; dragging
-  // across subgroup boundaries is disabled (worktree membership decides placement).
-  const dragKey = `${group.key}::wt:${wt.name}`;
-  return (
-    <Fragment key={`wt:${group.key}::${wt.name}`}>
-      <li
-        className={`worktree-subheader${wt.collapsed ? " collapsed" : ""}`}
-        title={wt.path || undefined}
-        onClick={() => handlers.onToggleWorktree(group.key, wt.name)}
-      >
-        <span className="group-chevron">{wt.collapsed ? "▶" : "▼"}</span>
-        <span className="worktree-subheader-name">{wt.name}</span>
-        {wt.state ? (
-          <span className={`wt-badge state state-${wt.state}`} title={`Worktree state: ${wt.state}`}>
-            {wt.state}
-          </span>
-        ) : null}
-        {landed ? (
-          <button
-            type="button"
-            className="wt-landed-pill"
-            title="Merged and safe to reap - open the worktrees panel"
-            aria-label={`Worktree ${wt.name} landed - open worktrees panel`}
-            onClick={(ev) => {
-              ev.preventDefault();
-              ev.stopPropagation();
-              handlers.onOpenWorktrees(group.key);
-            }}
-          >
-            landed — reap?
-          </button>
-        ) : null}
-        {wt.context ? (
-          <span className="worktree-subheader-context" title={wt.context}>{wt.context}</span>
-        ) : null}
-      </li>
-      {wt.collapsed
-        ? null
-        : (
-          <div className="worktree-subgroup">
-            {wt.items.map((item) => (
-              <PtyItemRow key={item.id} item={item} groupKey={dragKey} handlers={handlers} />
-            ))}
-          </div>
-        )}
-    </Fragment>
-  );
-}
-
 export function renderPtyList(root: Element, model: PtyListModel, handlers: PtyListHandlers): void {
-  const hasRunning = (group: PtyGroup) =>
-    group.items.length > 0 || group.worktrees.some((wt) => wt.items.length > 0);
+  const hasRunning = (group: PtyGroup) => group.items.length > 0;
   const isEmpty = model.groups.length === 0 && !model.inactive && !model.archived;
   render(
     <>
@@ -590,14 +546,6 @@ export function renderPtyList(root: Element, model: PtyListModel, handlers: PtyL
               <div className={model.showHeaders ? "group-body" : undefined}>
                 {group.items.map((item) => (
                   <PtyItemRow key={item.id} item={item} groupKey={group.key} handlers={handlers} />
-                ))}
-                {group.worktrees.map((wt) => (
-                  <RunningWorktreeSubgroup
-                    key={`wt:${group.key}::${wt.name}`}
-                    group={group}
-                    wt={wt}
-                    handlers={handlers}
-                  />
                 ))}
               </div>
             )}

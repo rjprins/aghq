@@ -16,7 +16,6 @@ import type {
   PtyReadinessIndicator,
   PtyReadinessState,
   PtySummary,
-  PtyWorktreeInfo,
   ServerToClientMessage,
   TmuxSessionCheck,
   TmuxSessionInfo,
@@ -29,7 +28,6 @@ import {
   type PtyGroup,
   type PtyListModel,
   type RunningPtyItem,
-  type WorktreeSubgroup,
 } from "./pty-list-view";
 import {
   renderLaunchModal,
@@ -44,12 +42,10 @@ import {
   renderWorktreesPanel,
   type WorktreesPanelViewModel,
 } from "./worktrees-panel-view";
-import {
-  WORKTREE_STATE_ORDER,
-  type ReapRequest,
-  type ReapResult,
-  type WorktreesFullResponse,
-  type WorktreeState,
+import type {
+  ReapRequest,
+  ReapResult,
+  WorktreesFullResponse,
 } from "../shared/worktrees.js";
 import {
   findContainingWorktree,
@@ -4276,7 +4272,6 @@ function worktreeName(cwd: string | null): string | null {
 }
 
 const collapsedGroups = new Set<string>();
-const collapsedWorktrees = new Set<string>(); // "groupKey::worktreeName"
 const inlineInactiveExpanded = new Set<string>(); // directory keys where inline recent is expanded
 const collapsedAgentSessionGroups = new Set<string>();
 const collapsedAgentSessionWorktrees = new Set<string>(); // "projectKey::worktreeName"
@@ -4365,6 +4360,8 @@ function buildRunningPtyItem(p: PtySummary): RunningPtyItem {
   const elapsed = changedAt && readyInfo.state !== "unknown" ? formatElapsedTime(changedAt) : "";
   const secondaryText = inputPreview ? `> ${inputPreview}` : "";
   const prApprovalCount = p.pr?.votes.filter((v) => v.vote === "approved" || v.vote === "approvedWithSuggestions").length ?? 0;
+  const wtInfo = p.worktreeInfo ?? null;
+  const worktreeLanded = wtInfo?.state === "merged" && wtInfo?.reapClass === "reap-safe";
 
   return {
     id: p.id,
@@ -4385,6 +4382,8 @@ function buildRunningPtyItem(p: PtySummary): RunningPtyItem {
     title: title && title !== process && title !== name ? title : undefined,
     secondaryText,
     worktree,
+    worktreeState: wtInfo?.state,
+    worktreeLanded: worktreeLanded || undefined,
     cwd: p.cwd ?? undefined,
     elapsed: elapsed || undefined,
   };
@@ -4781,7 +4780,7 @@ function buildMobileViewModel(): MobileViewModel {
     title: group.title,
     pinned: group.pinned,
     inactiveTotal: group.inactiveTotal,
-    running: [...group.items, ...group.worktrees.flatMap((wt) => wt.items)]
+    running: group.items
       .map((item) => runningById.get(item.id))
       .filter((session): session is MobileRunningSession => Boolean(session))
       .map((session) => ({
@@ -5129,65 +5128,6 @@ function buildInactiveWorktreeSubgroups(
   return { rootItems, worktrees };
 }
 
-function worktreeStateRank(state: WorktreeState | null): number {
-  const idx = state ? WORKTREE_STATE_ORDER.indexOf(state) : -1;
-  return idx >= 0 ? idx : WORKTREE_STATE_ORDER.indexOf("unknown");
-}
-
-function buildRunningWorktreeSubgroups(
-  summaries: PtySummary[],
-  keyPrefix: string,
-): { rootItems: RunningPtyItem[]; worktrees: WorktreeSubgroup[] } {
-  const allItems: RunningPtyItem[] = [];
-  const rootItems: RunningPtyItem[] = [];
-  const wtMap = new Map<string, { items: RunningPtyItem[]; path: string; info: PtyWorktreeInfo | null }>();
-  for (const p of summaries) {
-    const item = buildRunningPtyItem(p);
-    allItems.push(item);
-    const info = p.worktreeInfo ?? null;
-    const name = ptyWorktreeLabel(p);
-    // Primary-worktree and non-worktree sessions stay at the top level.
-    const isPrimary = info ? info.isPrimary : isMainWorktreeForCwd(p.cwd ?? null, knownWorktrees, serverRepoRoot);
-    if (!name || isPrimary) {
-      rootItems.push(item);
-      continue;
-    }
-    let wt = wtMap.get(name);
-    if (!wt) {
-      wt = { items: [], path: info?.path ?? p.cwd ?? "", info: null };
-      wtMap.set(name, wt);
-    }
-    if (info && !wt.info) wt.info = info;
-    wt.items.push(item);
-  }
-
-  // Nest only when sessions span multiple worktrees or the scanner annotated
-  // one; otherwise keep today's flat rendering.
-  const spanCount = wtMap.size + (rootItems.length > 0 ? 1 : 0);
-  const hasAnnotation = [...wtMap.values()].some((wt) => wt.info != null);
-  if (wtMap.size === 0 || (spanCount <= 1 && !hasAnnotation)) {
-    return { rootItems: allItems, worktrees: [] };
-  }
-
-  // Lifecycle group order first, most recent activity within it.
-  const worktrees: WorktreeSubgroup[] = [...wtMap.entries()]
-    .sort(([, a], [, b]) => {
-      const rank = worktreeStateRank(a.info?.state ?? null) - worktreeStateRank(b.info?.state ?? null);
-      if (rank !== 0) return rank;
-      return (b.info?.lastActivityAt ?? 0) - (a.info?.lastActivityAt ?? 0);
-    })
-    .map(([name, wt]) => ({
-      name,
-      path: wt.path,
-      collapsed: collapsedWorktrees.has(`${keyPrefix}::${name}`),
-      state: wt.info?.state ?? null,
-      reapClass: wt.info?.reapClass ?? null,
-      context: wt.info?.context ?? null,
-      items: wt.items,
-    }));
-  return { rootItems, worktrees };
-}
-
 function sameStringList(a: readonly string[], b: readonly string[]): boolean {
   return a.length === b.length && a.every((value, index) => value === b[index]);
 }
@@ -5272,7 +5212,7 @@ function renderList(): void {
 
   const groups: PtyGroup[] = allVisibleKeys.map((key) => {
     const basename = key ? key.split("/").filter(Boolean).at(-1) ?? key : "Other";
-    const runningSub = buildRunningWorktreeSubgroups(runningByDir.get(key) ?? [], key);
+    const runningItems = (runningByDir.get(key) ?? []).map((p) => buildRunningPtyItem(p));
 
     // Inline inactive sessions for this directory
     const dirInactiveItems = inactiveByProject.get(key) ?? [];
@@ -5284,8 +5224,7 @@ function renderList(): void {
       title: key || undefined,
       pinned: pinnedDirectories.has(key),
       collapsed: collapsedGroups.has(key),
-      worktrees: runningSub.worktrees,
-      items: runningSub.rootItems,
+      items: runningItems,
       inactiveSessions: inactiveSub.rootItems,
       inactiveWorktrees: inactiveSub.worktrees,
       inactiveTotal: dirInactiveItems.length,
@@ -5383,12 +5322,6 @@ function renderList(): void {
     onToggleGroup: (groupKey) => {
       if (collapsedGroups.has(groupKey)) collapsedGroups.delete(groupKey);
       else collapsedGroups.add(groupKey);
-      renderList();
-    },
-    onToggleWorktree: (groupKey, wtName) => {
-      const key = `${groupKey}::${wtName}`;
-      if (collapsedWorktrees.has(key)) collapsedWorktrees.delete(key);
-      else collapsedWorktrees.add(key);
       renderList();
     },
     onTogglePin: (groupKey) => {
@@ -5853,12 +5786,7 @@ function runningPtys(): PtySummary[] {
 
 function ptyVisibleForDesktopCycling(pty: PtySummary): boolean {
   if (mobileViewport) return true;
-  const groupKey = runningPtyGroupKey(pty);
-  if (collapsedGroups.has(groupKey)) return false;
-  // Rows inside a collapsed worktree subgroup are hidden too.
-  const group = latestPtyListModel?.groups.find((g) => g.key === groupKey);
-  const sub = group?.worktrees.find((wt) => wt.items.some((item) => item.id === pty.id));
-  return !(sub?.collapsed ?? false);
+  return !collapsedGroups.has(runningPtyGroupKey(pty));
 }
 
 function switchPtyByOffset(offset: number): void {

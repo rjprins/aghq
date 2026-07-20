@@ -3346,32 +3346,7 @@ button:disabled {
   font-size: 12px;
 }
 
-/* Running worktree subgroups (sidebar lifecycle nesting) */
-.worktree-subheader-name {
-  flex-shrink: 0;
-  max-width: 55%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.worktree-subheader-context {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font-weight: 400;
-  text-transform: none;
-  color: var(--muted);
-  opacity: 0.8;
-}
-
-.worktree-subheader .wt-badge {
-  flex-shrink: 0;
-  font-size: 9px;
-  line-height: 1.5;
-  padding: 0 5px;
-}
-
+/* "landed — reap?" pill on session rows whose worktree is merged + reap-safe */
 .wt-landed-pill {
   flex-shrink: 0;
   font-family: inherit;
