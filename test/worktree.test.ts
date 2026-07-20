@@ -1,11 +1,18 @@
-import { describe, expect, test, beforeEach } from "vitest";
+import { describe, expect, test, beforeEach, afterEach } from "vitest";
+import { execFileSync } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import {
   parseWorktreeListPorcelain,
   resolveWorktreePath,
   worktreeFromCwd,
   projectRootFromCwd,
+  branchAtCwd,
+  branchForPathInRepo,
   _resetCacheForTesting,
   _setCacheForTesting,
+  _setBranchCacheForTesting,
 } from "../src/worktree.js";
 
 describe("parseWorktreeListPorcelain", () => {
@@ -161,6 +168,92 @@ describe("projectRootFromCwd", () => {
 
   test("returns null for null cwd", () => {
     expect(projectRootFromCwd(null, repoRoot)).toBeNull();
+  });
+});
+
+describe("branchForPathInRepo", () => {
+  const repoRoot = "/home/user/repo";
+
+  beforeEach(() => {
+    _setCacheForTesting([
+      { path: "/home/user/repo", branch: "main" },
+      { path: "/home/user/repo-feature-auth", branch: "feature/auth" },
+      { path: "/home/user/repo-feature-auth/nested-wt", branch: "nested" },
+    ]);
+  });
+
+  test("maps a file in a linked worktree to that branch", () => {
+    expect(branchForPathInRepo("/home/user/repo-feature-auth/src/x.ts", repoRoot)).toBe("feature/auth");
+  });
+
+  test("maps a file in the main worktree to its branch (not excluded)", () => {
+    expect(branchForPathInRepo("/home/user/repo/src/x.ts", repoRoot)).toBe("main");
+  });
+
+  test("longest-prefix wins for nested worktrees", () => {
+    expect(branchForPathInRepo("/home/user/repo-feature-auth/nested-wt/y.ts", repoRoot)).toBe("nested");
+  });
+
+  test("returns null for a path outside every worktree of the repo", () => {
+    expect(branchForPathInRepo("/home/user/other-repo/z.ts", repoRoot)).toBeNull();
+  });
+
+  test("returns null for null path", () => {
+    expect(branchForPathInRepo(null, repoRoot)).toBeNull();
+  });
+});
+
+describe("branchAtCwd", () => {
+  beforeEach(() => _resetCacheForTesting());
+
+  test("returns null for null cwd", () => {
+    expect(branchAtCwd(null)).toBeNull();
+  });
+
+  test("returns the cached branch, normalizing the cwd key", () => {
+    _setBranchCacheForTesting("/home/user/repo", "233362-ibt-maxtimelimit");
+    expect(branchAtCwd("/home/user/repo")).toBe("233362-ibt-maxtimelimit");
+    // path.resolve collapses the trailing segments to the same key
+    expect(branchAtCwd("/home/user/repo/nested/..")).toBe("233362-ibt-maxtimelimit");
+  });
+
+  test("caches a null result (detached HEAD / non-git cwd)", () => {
+    _setBranchCacheForTesting("/tmp/not-a-repo", null);
+    expect(branchAtCwd("/tmp/not-a-repo")).toBeNull();
+  });
+
+  describe("against a real git repo", () => {
+    let dir: string;
+
+    beforeEach(() => {
+      dir = fs.mkdtempSync(path.join(os.tmpdir(), "agmux-branch-"));
+      const git = (...args: string[]) => execFileSync("git", ["-C", dir, ...args], { stdio: "ignore" });
+      git("init", "-q");
+      git("config", "user.email", "t@example.com");
+      git("config", "user.name", "T");
+      git("config", "commit.gpgsign", "false");
+      fs.writeFileSync(path.join(dir, "f"), "x");
+      git("add", ".");
+      git("commit", "-qm", "init");
+      _resetCacheForTesting();
+    });
+
+    afterEach(() => {
+      fs.rmSync(dir, { recursive: true, force: true });
+    });
+
+    test("reads the checked-out branch of the primary worktree", () => {
+      execFileSync("git", ["-C", dir, "checkout", "-q", "-b", "233362-ibt-maxtimelimit"], { stdio: "ignore" });
+      _resetCacheForTesting();
+      expect(branchAtCwd(dir)).toBe("233362-ibt-maxtimelimit");
+    });
+
+    test("returns null for a detached HEAD", () => {
+      const head = execFileSync("git", ["-C", dir, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+      execFileSync("git", ["-C", dir, "checkout", "-q", head], { stdio: "ignore" });
+      _resetCacheForTesting();
+      expect(branchAtCwd(dir)).toBeNull();
+    });
   });
 });
 

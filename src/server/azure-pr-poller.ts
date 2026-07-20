@@ -4,7 +4,7 @@ import type { FastifyBaseLogger } from "fastify";
 
 import type { PtySummary } from "../types.js";
 import type { SqliteStore } from "../persist/sqlite.js";
-import { getWorktreeCache } from "../worktree.js";
+import { branchAtCwd, getWorktreeCache } from "../worktree.js";
 import {
   buildPrSummary,
   getCurrentUser,
@@ -31,6 +31,7 @@ export type AzurePrPollerDeps = {
   listPtys: () => Promise<PtySummary[]>;
   writeToPty: (ptyId: string, data: string) => void;
   setPrStateForBranch: (projectRoot: string, branch: string, pr: ReturnType<typeof buildPrSummary> | null) => void;
+  getActiveEditBranch: (ptyId: string) => string | null;
   broadcastPtyList: () => Promise<void>;
   launchSession: (opts: { agent: string; worktree: string; name: string; initialInput: string }) => Promise<void>;
   pollIntervalMs: number;
@@ -138,7 +139,12 @@ export function createAzurePrPoller(deps: AzurePrPollerDeps) {
           if (!undelivered) continue;
 
           const prompt = formatCommentPrompt(pr.id, pr.title, threads.unresolvedCount, threads.newComments, summary.url);
-          const branchSessions = sessions.filter((p) => p.projectRoot === repoRoot && p.worktree === pr.sourceBranch);
+          const branchSessions = sessions.filter(
+            (p) =>
+              p.projectRoot === repoRoot &&
+              ((branchAtCwd(p.cwd ?? null) ?? p.worktree) === pr.sourceBranch ||
+                deps.getActiveEditBranch(p.id) === pr.sourceBranch),
+          );
 
           if (branchSessions.length > 0) {
             const target = branchSessions[0];

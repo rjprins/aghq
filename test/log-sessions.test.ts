@@ -9,7 +9,21 @@ import {
   findRecentLogSessionByCwd,
   findLogFileForSession,
   readConversationMessages,
+  recentMutatedPaths,
 } from "../src/logSessions.js";
+
+function assistantToolUse(...tools: Array<{ name: string; file_path?: string; notebook_path?: string }>) {
+  return {
+    type: "assistant",
+    message: {
+      content: tools.map((t) => ({
+        type: "tool_use",
+        name: t.name,
+        input: t.notebook_path ? { notebook_path: t.notebook_path } : { file_path: t.file_path },
+      })),
+    },
+  };
+}
 
 async function writeJsonl(filePath: string, lines: unknown[]): Promise<void> {
   await fs.mkdir(path.dirname(filePath), { recursive: true });
@@ -589,5 +603,66 @@ describe("readConversationMessages", () => {
   test("returns empty array for nonexistent file", () => {
     const messages = readConversationMessages("/tmp/nonexistent-file.jsonl");
     expect(messages).toEqual([]);
+  });
+});
+
+describe("recentMutatedPaths", () => {
+  let tmpRoot: string | null = null;
+
+  afterEach(async () => {
+    if (tmpRoot) {
+      await fs.rm(tmpRoot, { recursive: true, force: true });
+      tmpRoot = null;
+    }
+  });
+
+  async function write(lines: unknown[]): Promise<string> {
+    tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "agmux-mut-"));
+    const logFile = path.join(tmpRoot, "s.jsonl");
+    await writeJsonl(logFile, lines);
+    return logFile;
+  }
+
+  test("returns mutated paths most-recent first, deduped", async () => {
+    const logFile = await write([
+      { type: "user", message: { role: "user", content: "go" } },
+      assistantToolUse({ name: "Write", file_path: "/repo/a.ts" }),
+      assistantToolUse({ name: "Edit", file_path: "/repo/b.ts" }),
+      assistantToolUse({ name: "Edit", file_path: "/repo/a.ts" }),
+    ]);
+    expect(recentMutatedPaths(logFile)).toEqual(["/repo/a.ts", "/repo/b.ts"]);
+  });
+
+  test("ignores non-mutating tools (Read/Bash/Grep)", async () => {
+    const logFile = await write([
+      assistantToolUse({ name: "Read", file_path: "/other-repo/x.ts" }),
+      assistantToolUse({ name: "Grep", file_path: "/other-repo/y.ts" }),
+      assistantToolUse({ name: "Edit", file_path: "/repo/real.ts" }),
+    ]);
+    expect(recentMutatedPaths(logFile)).toEqual(["/repo/real.ts"]);
+  });
+
+  test("picks up NotebookEdit notebook_path", async () => {
+    const logFile = await write([
+      assistantToolUse({ name: "NotebookEdit", notebook_path: "/repo/nb.ipynb" }),
+    ]);
+    expect(recentMutatedPaths(logFile)).toEqual(["/repo/nb.ipynb"]);
+  });
+
+  test("respects the limit", async () => {
+    const logFile = await write([
+      assistantToolUse({ name: "Edit", file_path: "/repo/a.ts" }),
+      assistantToolUse({ name: "Edit", file_path: "/repo/b.ts" }),
+      assistantToolUse({ name: "Edit", file_path: "/repo/c.ts" }),
+    ]);
+    expect(recentMutatedPaths(logFile, { limit: 2 })).toEqual(["/repo/c.ts", "/repo/b.ts"]);
+  });
+
+  test("returns empty for a transcript with no mutations", async () => {
+    const logFile = await write([
+      { type: "user", message: { role: "user", content: "hello" } },
+      assistantToolUse({ name: "Read", file_path: "/repo/a.ts" }),
+    ]);
+    expect(recentMutatedPaths(logFile)).toEqual([]);
   });
 });

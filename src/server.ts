@@ -161,6 +161,7 @@ if (AZURE_PR_ENABLED) {
     listPtys: runtime.listPtys,
     writeToPty: (ptyId, data) => runtime.ptys.write(ptyId, data),
     setPrStateForBranch: runtime.setPrStateForBranch,
+    getActiveEditBranch: runtime.getActiveEditBranch,
     broadcastPtyList: runtime.broadcastPtyList,
     launchSession: async (opts) => {
       const res = await fetch(`http://127.0.0.1:${PORT}/api/ptys/launch`, {
