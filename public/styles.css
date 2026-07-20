@@ -727,6 +727,24 @@ button:disabled {
   max-width: 140px;
 }
 
+/* Brand icon in place of the process pill for known agents */
+.agent-icon-badge {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  color: color-mix(in srgb, var(--text) 70%, var(--muted));
+}
+
+.agent-icon-badge svg {
+  width: 12px;
+  height: 12px;
+  display: block;
+}
+
+.agent-icon-badge.claude {
+  color: #d97757;
+}
+
 .session-edit-btn {
   padding: 0 4px;
   font-size: 10px;

@@ -1,5 +1,6 @@
 import { Fragment, render } from "preact";
 import type { WorktreeState } from "../shared/worktrees.js";
+import { AgentIcon, agentIconKind } from "./agent-icons";
 
 const PAGE_SIZE = 8;
 const visiblePages = new Map<string, number>();
@@ -270,6 +271,7 @@ function PtyItemRow(
   const approvalProgress = item.prRequiredApprovals != null && item.prApprovalCount != null
     ? `${item.prApprovalCount}/${item.prRequiredApprovals} approvals`
     : null;
+  const agentIcon = agentIconKind(item.process);
 
   return (
     <li
@@ -414,7 +416,13 @@ function PtyItemRow(
           {(item.process || item.worktree || item.secondaryText || item.title) ? (
             <div className="secondary">
               {item.process ? (
-                <span className="process-badge" title={`Active process: ${item.process}`}>{item.process}</span>
+                agentIcon
+                  ? (
+                    <span className={`agent-icon-badge ${agentIcon}`} title={`Active process: ${item.process}`}>
+                      <AgentIcon kind={agentIcon} />
+                    </span>
+                  )
+                  : <span className="process-badge" title={`Active process: ${item.process}`}>{item.process}</span>
               ) : null}
               {item.worktree ? (
                 <span
