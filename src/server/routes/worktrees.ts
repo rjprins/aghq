@@ -151,7 +151,7 @@ export function registerWorktreeRoutes(deps: WorktreeRoutesDeps): void {
         expectedHead,
         expectedStatusHash: typeof body.expectedStatusHash === "string" ? body.expectedStatusHash : undefined,
         salvage: body.salvage !== false,
-        deleteBranch: body.deleteBranch === "never" ? "never" : "auto",
+        deleteBranch: body.deleteBranch === "never" || body.deleteBranch === "force" ? body.deleteBranch : "auto",
       });
       if (result.ok && result.repoRoot) {
         scanner.invalidate(result.repoRoot);

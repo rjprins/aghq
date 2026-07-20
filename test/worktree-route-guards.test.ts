@@ -80,6 +80,28 @@ describe("worktree route guards", () => {
     await fastify.close();
   });
 
+  it("passes deleteBranch force/never to the reaper and coerces the rest to auto", async () => {
+    const fastify = Fastify();
+    const seen: (string | undefined)[] = [];
+    const reaper = {
+      reap: async (req: { deleteBranch?: string }) => {
+        seen.push(req.deleteBranch);
+        return { ok: true };
+      },
+    } as any;
+    registerWorktreeRoutes({ fastify, worktrees: baseWorktrees(), scanner: scannerStub, reaper, store: {} as any });
+
+    for (const deleteBranch of ["force", "never", "bogus", undefined]) {
+      await fastify.inject({
+        method: "POST",
+        url: "/api/worktrees/reap",
+        payload: { path: "/tmp/wt", expectedHead: "abc1234", ...(deleteBranch ? { deleteBranch } : {}) },
+      });
+    }
+    expect(seen).toEqual(["force", "never", "auto", "auto"]);
+    await fastify.close();
+  });
+
   it("refuses to delete a dirty worktree with 409", async () => {
     const fastify = Fastify();
     const removed: string[] = [];

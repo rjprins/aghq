@@ -399,6 +399,7 @@ export function createReapService(deps: ReapServiceDeps) {
     let branchNote: string | undefined;
     try {
       if (!detached && req.deleteBranch !== "never") {
+        const force = req.deleteBranch === "force";
         const branchTip = (await git(["rev-parse", "--verify", `refs/heads/${branch}`], repoRoot)).trim();
         const upstreamGone = await branchUpstreamGone(repoRoot, branch);
         const neverPushed = !upstreamGone && !(await hasUpstreamOrOriginRef(repoRoot, branch));
@@ -408,9 +409,9 @@ export function createReapService(deps: ReapServiceDeps) {
           (detail.mergeSourceSha != null && detail.mergeSourceSha === branchTip) ||
           (await ancestryMerged(repoRoot, branchTip));
 
-        if (neverPushed && !mergeProven) {
+        if (neverPushed && !mergeProven && !force) {
           branchNote = "branch kept: never pushed";
-        } else if (!mergeProven) {
+        } else if (!mergeProven && !force) {
           branchNote = "branch kept: merge not proven";
         } else {
           atticTag = await writeAtticTag({ repoRoot, branch, tipSha: branchTip, evidence, salvagePath });

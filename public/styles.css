@@ -3331,6 +3331,27 @@ button:disabled {
   font-size: 12px;
 }
 
+.close-wt-branch-opt {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+  cursor: pointer;
+  user-select: none;
+}
+
+.close-wt-branch-opt input {
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.close-wt-branch-opt strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
 /* "landed — reap?" pill on session rows whose worktree is merged + reap-safe */
 .wt-landed-pill {
   flex-shrink: 0;

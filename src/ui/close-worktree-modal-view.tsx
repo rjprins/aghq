@@ -11,12 +11,17 @@ export type CloseWorktreeModalViewModel = {
   evidence?: string | null;
   /** Guarded removal needs a scan row; "missing" disables removal instead of force-deleting. */
   scanState: "loading" | "ready" | "missing";
+  /** Branch checked out in the worktree; null when detached or unknown. */
+  branch: string | null;
+  /** Whether "Close + remove" should also delete the branch (tip is attic-tagged first). */
+  deleteBranch: boolean;
 };
 
 export type CloseWorktreeModalHandlers = {
   onClose: () => void;
   onCloseSession: () => void;
   onCloseAndRemove: () => void;
+  onToggleDeleteBranch: () => void;
 };
 
 export function renderCloseWorktreeModal(
@@ -87,6 +92,19 @@ export function renderCloseWorktreeModal(
         )}
         {model.canRemoveWorktree && isDirty && model.changes.length > 0 && (
           <pre className="close-wt-changes">{model.changes.slice(0, 10).join("\n")}{model.changes.length > 10 ? `\n... and ${model.changes.length - 10} more` : ""}</pre>
+        )}
+        {model.canRemoveWorktree && model.branch && model.scanState === "ready" && (
+          <label className="close-wt-branch-opt" title="The branch tip is saved to an attic tag before deletion, so it stays recoverable.">
+            <input
+              type="checkbox"
+              checked={model.deleteBranch}
+              disabled={model.closing}
+              onChange={() => handlers.onToggleDeleteBranch()}
+            />
+            <span>
+              Also delete branch <strong>{model.branch}</strong>
+            </span>
+          </label>
         )}
 
         <div className="launch-modal-buttons close-wt-buttons">

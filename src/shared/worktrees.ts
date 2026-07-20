@@ -118,8 +118,9 @@ export type ReapRequest = {
   expectedStatusHash?: string;
   /** Tarball non-ignored dirt before removal. Server forces true when such dirt exists. */
   salvage?: boolean;
-  /** "auto" (default): attic-tag then delete when merged-proven; "never": keep branch. */
-  deleteBranch?: "auto" | "never";
+  /** "auto" (default): attic-tag then delete when merged-proven; "never": keep branch;
+   *  "force": attic-tag then delete even when merge is not proven. */
+  deleteBranch?: "auto" | "never" | "force";
 };
 
 export type ReapResult = {

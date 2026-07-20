@@ -2538,6 +2538,10 @@ type CloseWorktreeModalState = {
   reapRow: { head: string; statusHash: string | null } | null;
   /** True once the scan settled; with reapRow still null the row is missing. */
   scanDone: boolean;
+  /** Branch checked out in the worktree; null when detached or unknown. */
+  branch: string | null;
+  /** Checkbox: delete the branch along with the worktree (defaults to on when merged). */
+  deleteBranch: boolean;
 };
 
 let closeWorktreeModalState: CloseWorktreeModalState | null = null;
@@ -2546,6 +2550,7 @@ const NOOP_CLOSE_WORKTREE_HANDLERS = {
   onClose: () => {},
   onCloseSession: () => {},
   onCloseAndRemove: () => {},
+  onToggleDeleteBranch: () => {},
 };
 
 function renderCloseWorktreeModalState(): void {
@@ -2560,6 +2565,8 @@ function renderCloseWorktreeModalState(): void {
       closing: state.closing,
       evidence: state.evidence,
       scanState: state.reapRow ? "ready" : state.scanDone ? "missing" : "loading",
+      branch: state.branch,
+      deleteBranch: state.deleteBranch,
     }
     : null;
 
@@ -2574,6 +2581,12 @@ function renderCloseWorktreeModalState(): void {
       closeWorktreeModalState = null;
       renderCloseWorktreeModalState();
       void killPtyDirect(ptyId);
+    },
+    onToggleDeleteBranch: () => {
+      const st = closeWorktreeModalState;
+      if (!st || st.closing) return;
+      st.deleteBranch = !st.deleteBranch;
+      renderCloseWorktreeModalState();
     },
     onCloseAndRemove: () => {
       const st = closeWorktreeModalState;
@@ -2592,10 +2605,11 @@ function renderCloseWorktreeModalState(): void {
             expectedHead: reapRow.head,
             expectedStatusHash: reapRow.statusHash ?? undefined,
             salvage: true,
-            deleteBranch: "auto",
+            deleteBranch: st.branch ? (st.deleteBranch ? "force" : "never") : "auto",
           });
           // A guard abort is a deliberate refusal: do not force-delete.
           if (!result.ok) failure = result.reason ?? "unknown reason";
+          else if (result.reason) addEvent(`Worktree ${st.worktreeName} removed; ${result.reason}`);
         } catch (err) {
           if (err instanceof ApiHttpError && err.status === 404 && dirty === false) {
             // Older server without the reap route; the worktree is clean, so plain removal is safe.
@@ -2654,6 +2668,8 @@ function openCloseWorktreeModal(ptyId: string): void {
     evidence: null,
     reapRow: null,
     scanDone: false,
+    branch: null,
+    deleteBranch: false,
   };
   renderCloseWorktreeModalState();
 
@@ -2666,6 +2682,8 @@ function openCloseWorktreeModal(ptyId: string): void {
       if (row) {
         closeWorktreeModalState.evidence = row.evidence || null;
         closeWorktreeModalState.reapRow = row.head ? { head: row.head, statusHash: row.statusHash ?? null } : null;
+        closeWorktreeModalState.branch = row.branch || null;
+        closeWorktreeModalState.deleteBranch = Boolean(row.branch) && row.state === "merged";
       }
       renderCloseWorktreeModalState();
     })
