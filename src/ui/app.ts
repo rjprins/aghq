@@ -3681,6 +3681,11 @@ function lastPathSegment(pathValue: string | null): string {
   return pathValue.split("/").filter(Boolean).at(-1) ?? "";
 }
 
+function truncatePathStart(pathValue: string, max: number): string {
+  if (pathValue.length <= max) return pathValue;
+  return `…${pathValue.slice(-(max - 1))}`;
+}
+
 function displaySessionIntent(session: AgentSessionSummary): string | null {
   const raw = compactWhitespace(session.name);
   if (!raw) return null;
@@ -3747,15 +3752,20 @@ function displayInactiveSessionSubtitle(session: AgentSessionSummary): string {
 type ReactivateProjectModalState = {
   groupKey: string;
   selectedSessionId: string;
-  target: RestoreTargetChoice;
-  selectedWorktreePath: string;
+  filterValue: string;
+  destination: string; // "same_cwd" | "wt:<path>" | "new_worktree" | "custom_cwd"
   customCwdValue: string;
   newBranchValue: string;
   worktreeOptions: Array<{ value: string; label: string }>;
   previewMessages: SessionPreviewMessage[];
+  previewFirstUser: SessionPreviewMessage | null;
+  previewTotal: number;
   previewLoading: boolean;
   restoring: boolean;
 };
+
+const REACTIVATE_PREVIEW_RECENT = 12;
+const REACTIVATE_FILTER_MIN_SESSIONS = 6;
 
 const reactivateProjectModalRoot = document.createElement("div");
 document.body.appendChild(reactivateProjectModalRoot);
@@ -3767,11 +3777,11 @@ function closeReactivateProjectModal(): void {
   reactivateProjectModalState = null;
   renderReactivateProjectModal(reactivateProjectModalRoot, null, {
     onClose: () => {},
+    onFilterChange: () => {},
     onSelectSession: () => {},
-    onTargetChange: () => {},
-    onWorktreeChange: () => {},
-    onCustomCwdChange: () => {},
+    onDestinationChange: () => {},
     onNewBranchChange: () => {},
+    onCustomCwdChange: () => {},
     onHideSession: () => {},
     onRestore: () => {},
   });
@@ -3783,10 +3793,7 @@ function applyReactivateProjectSessionDefaults(state: ReactivateProjectModalStat
     : null;
   const suggestedWorktreePath = matchedWt?.path ?? "";
   const worktreeAvailable = state.worktreeOptions.some((wt) => wt.value === suggestedWorktreePath);
-  state.target = worktreeAvailable ? "worktree" : "same_cwd";
-  state.selectedWorktreePath = worktreeAvailable
-    ? suggestedWorktreePath
-    : (state.worktreeOptions[0]?.value ?? "");
+  state.destination = worktreeAvailable ? `wt:${suggestedWorktreePath}` : "same_cwd";
   state.customCwdValue = session.cwd ?? session.projectRoot ?? state.groupKey;
   state.newBranchValue = session.worktree ?? `restore-${Date.now()}`;
 }
@@ -3797,6 +3804,8 @@ function loadReactivateProjectPreview(agentSessionId: string): void {
   const previewSeq = ++reactivateProjectPreviewSeq;
   reactivateProjectModalState.previewLoading = true;
   reactivateProjectModalState.previewMessages = [];
+  reactivateProjectModalState.previewFirstUser = null;
+  reactivateProjectModalState.previewTotal = 0;
   renderReactivateProjectModalState();
   void authFetch(`/api/agent-sessions/${encodeURIComponent(session.provider)}/${encodeURIComponent(session.providerSessionId)}/conversation`)
     .then(async (res) => (res.ok ? res.json() : Promise.reject(new Error(await readApiError(res)))))
@@ -3804,7 +3813,9 @@ function loadReactivateProjectPreview(agentSessionId: string): void {
       if (!reactivateProjectModalState || previewSeq !== reactivateProjectPreviewSeq) return;
       if (reactivateProjectModalState.selectedSessionId !== agentSessionId) return;
       const messages = Array.isArray(data.messages) ? data.messages : [];
-      reactivateProjectModalState.previewMessages = messages.slice(-6);
+      reactivateProjectModalState.previewMessages = messages.slice(-REACTIVATE_PREVIEW_RECENT);
+      reactivateProjectModalState.previewFirstUser = messages.find((msg) => msg.role === "user") ?? null;
+      reactivateProjectModalState.previewTotal = messages.length;
       reactivateProjectModalState.previewLoading = false;
       renderReactivateProjectModalState();
     })
@@ -3812,9 +3823,22 @@ function loadReactivateProjectPreview(agentSessionId: string): void {
       if (!reactivateProjectModalState || previewSeq !== reactivateProjectPreviewSeq) return;
       if (reactivateProjectModalState.selectedSessionId !== agentSessionId) return;
       reactivateProjectModalState.previewMessages = [];
+      reactivateProjectModalState.previewFirstUser = null;
+      reactivateProjectModalState.previewTotal = 0;
       reactivateProjectModalState.previewLoading = false;
       renderReactivateProjectModalState();
     });
+}
+
+function reactivateSessionMatchesFilter(session: AgentSessionSummary, filter: string): boolean {
+  if (!filter) return true;
+  const hay = [
+    displaySessionTitle(session),
+    session.worktree ?? "",
+    session.providerSessionId,
+    session.provider,
+  ].join(" ").toLowerCase();
+  return hay.includes(filter);
 }
 
 function renderReactivateProjectModalState(): void {
@@ -3823,44 +3847,69 @@ function renderReactivateProjectModalState(): void {
     closeReactivateProjectModal();
     return;
   }
-  const sessions = getInactiveSessionsForProject(state.groupKey);
-  if (sessions.length === 0) {
+  const allSessions = getInactiveSessionsForProject(state.groupKey);
+  if (allSessions.length === 0) {
     closeReactivateProjectModal();
     renderList();
     return;
   }
-  const selectedSession = sessions.find((session) => session.id === state.selectedSessionId) ?? sessions[0];
-  if (selectedSession.id !== state.selectedSessionId) {
+  const filter = state.filterValue.trim().toLowerCase();
+  const sessions = allSessions.filter((session) => reactivateSessionMatchesFilter(session, filter));
+  const selectedSession = sessions.find((session) => session.id === state.selectedSessionId) ?? sessions[0] ?? null;
+  if (selectedSession && selectedSession.id !== state.selectedSessionId) {
     state.selectedSessionId = selectedSession.id;
     applyReactivateProjectSessionDefaults(state, selectedSession);
     loadReactivateProjectPreview(selectedSession.id);
   }
 
+  const firstUser = state.previewFirstUser;
+  const firstPrompt =
+    firstUser && state.previewTotal > REACTIVATE_PREVIEW_RECENT && !state.previewMessages.includes(firstUser)
+      ? truncateText(firstUser.text, 280)
+      : undefined;
+
   const model: ReactivateProjectModalViewModel = {
     projectLabel: lastPathSegment(state.groupKey) || "(unknown project)",
     projectPath: state.groupKey || undefined,
+    totalSessions: allSessions.length,
+    showFilter: allSessions.length > REACTIVATE_FILTER_MIN_SESSIONS || state.filterValue.length > 0,
+    filterValue: state.filterValue,
     sessions: sessions.map((session) => ({
       id: session.id,
       title: displaySessionTitle(session),
-      subtitle: displaySessionSubtitle(session),
-      provider: capitalizeWord(session.provider),
-      providerSessionId: session.providerSessionId,
+      provider: session.provider,
+      providerLabel: capitalizeWord(session.provider),
+      shortId: shortSessionId(session.providerSessionId),
       elapsed: formatElapsedTime(session.lastSeenAt) || undefined,
-      worktree: session.worktree ?? undefined,
-      firstInput: displaySessionIntent(session),
-      exitLabel: session.lastRestoredAt ? "restored before" : "available",
+      branch: session.worktree ?? undefined,
+      restored: Boolean(session.lastRestoredAt),
     })),
     selectedSessionId: state.selectedSessionId,
-    previewMessages: state.previewMessages,
-    previewLoading: state.previewLoading,
-    target: state.target,
-    sameCwdLabel: selectedSession.cwd
-      ? `Use last known location (${selectedSession.cwd})`
-      : "Use last known location",
-    worktreeOptions: state.worktreeOptions,
-    selectedWorktreePath: state.selectedWorktreePath,
-    customCwdValue: state.customCwdValue,
+    detail: selectedSession
+      ? {
+          title: displaySessionTitle(selectedSession),
+          provider: selectedSession.provider,
+          providerLabel: capitalizeWord(selectedSession.provider),
+          providerSessionId: selectedSession.providerSessionId,
+          shortId: shortSessionId(selectedSession.providerSessionId),
+          branch: selectedSession.worktree ?? undefined,
+          lastActive: formatElapsedTime(selectedSession.lastSeenAt) || undefined,
+          firstPrompt,
+          messages: state.previewMessages.map((msg) => ({
+            role: msg.role,
+            text: msg.text,
+            time: msg.ts != null ? formatElapsedTime(msg.ts) || undefined : undefined,
+          })),
+          previewLoading: state.previewLoading,
+        }
+      : null,
+    destinationValue: state.destination,
+    sameCwdLabel: selectedSession?.cwd
+      ? `Last location — ${truncatePathStart(selectedSession.cwd, 56)}`
+      : "Last known location",
+    worktreeDestinations: state.worktreeOptions.map((option) => ({ value: `wt:${option.value}`, label: option.label })),
     newBranchValue: state.newBranchValue,
+    customCwdValue: state.customCwdValue,
     restoring: state.restoring,
   };
 
@@ -3868,28 +3917,23 @@ function renderReactivateProjectModalState(): void {
     onClose: () => {
       closeReactivateProjectModal();
     },
+    onFilterChange: (value) => {
+      if (!reactivateProjectModalState || reactivateProjectModalState.restoring) return;
+      reactivateProjectModalState.filterValue = value;
+      renderReactivateProjectModalState();
+    },
     onSelectSession: (sessionId) => {
       if (!reactivateProjectModalState || reactivateProjectModalState.restoring) return;
-      const session = sessions.find((item) => item.id === sessionId);
+      const session = allSessions.find((item) => item.id === sessionId);
       if (!session) return;
       reactivateProjectModalState.selectedSessionId = sessionId;
       applyReactivateProjectSessionDefaults(reactivateProjectModalState, session);
       renderReactivateProjectModalState();
       loadReactivateProjectPreview(sessionId);
     },
-    onTargetChange: (target) => {
+    onDestinationChange: (value) => {
       if (!reactivateProjectModalState) return;
-      reactivateProjectModalState.target = target;
-      renderReactivateProjectModalState();
-    },
-    onWorktreeChange: (pathValue) => {
-      if (!reactivateProjectModalState) return;
-      reactivateProjectModalState.selectedWorktreePath = pathValue;
-      renderReactivateProjectModalState();
-    },
-    onCustomCwdChange: (cwdValue) => {
-      if (!reactivateProjectModalState) return;
-      reactivateProjectModalState.customCwdValue = cwdValue;
+      reactivateProjectModalState.destination = value;
       renderReactivateProjectModalState();
     },
     onNewBranchChange: (branchValue) => {
@@ -3897,12 +3941,21 @@ function renderReactivateProjectModalState(): void {
       reactivateProjectModalState.newBranchValue = branchValue;
       renderReactivateProjectModalState();
     },
-    onHideSession: () => {
+    onCustomCwdChange: (cwdValue) => {
+      if (!reactivateProjectModalState) return;
+      reactivateProjectModalState.customCwdValue = cwdValue;
+      renderReactivateProjectModalState();
+    },
+    onHideSession: (sessionId) => {
       if (!reactivateProjectModalState || reactivateProjectModalState.restoring) return;
-      hiddenAgentSessionIds.add(reactivateProjectModalState.selectedSessionId);
+      hiddenAgentSessionIds.add(sessionId);
       saveHiddenAgentSessions();
-      reactivateProjectModalState.previewMessages = [];
-      reactivateProjectModalState.previewLoading = false;
+      if (reactivateProjectModalState.selectedSessionId === sessionId) {
+        reactivateProjectModalState.previewMessages = [];
+        reactivateProjectModalState.previewFirstUser = null;
+        reactivateProjectModalState.previewTotal = 0;
+        reactivateProjectModalState.previewLoading = false;
+      }
       renderList();
       renderReactivateProjectModalState();
     },
@@ -3910,12 +3963,11 @@ function renderReactivateProjectModalState(): void {
       if (!reactivateProjectModalState || reactivateProjectModalState.restoring) return;
       const stateNow = reactivateProjectModalState;
       let target: RestoreAgentTarget = { target: "same_cwd" };
-      if (stateNow.target === "worktree") {
-        if (!stateNow.selectedWorktreePath) return;
-        target = { target: "worktree", worktreePath: stateNow.selectedWorktreePath };
-      } else if (stateNow.target === "new_worktree") {
+      if (stateNow.destination.startsWith("wt:")) {
+        target = { target: "worktree", worktreePath: stateNow.destination.slice(3) };
+      } else if (stateNow.destination === "new_worktree") {
         target = { target: "new_worktree", branch: stateNow.newBranchValue.trim() || `restore-${Date.now()}` };
-      } else if (stateNow.target === "custom_cwd") {
+      } else if (stateNow.destination === "custom_cwd") {
         if (!stateNow.customCwdValue.trim()) return;
         target = { target: "same_cwd", cwd: stateNow.customCwdValue.trim() };
       }
@@ -3943,12 +3995,14 @@ function openReactivateProjectModal(groupKey: string): void {
   reactivateProjectModalState = {
     groupKey,
     selectedSessionId: selectedSession.id,
-    target: "same_cwd",
-    selectedWorktreePath: "",
+    filterValue: "",
+    destination: "same_cwd",
     customCwdValue: selectedSession.cwd ?? selectedSession.projectRoot ?? groupKey,
     newBranchValue: selectedSession.worktree ?? `restore-${Date.now()}`,
     worktreeOptions: [],
     previewMessages: [],
+    previewFirstUser: null,
+    previewTotal: 0,
     previewLoading: true,
     restoring: false,
   };
@@ -3966,7 +4020,7 @@ function openReactivateProjectModal(groupKey: string): void {
     .catch(() => {
       if (!reactivateProjectModalState || seq !== reactivateProjectModalSeq) return;
       reactivateProjectModalState.worktreeOptions = [];
-      if (reactivateProjectModalState.target === "worktree") reactivateProjectModalState.target = "same_cwd";
+      if (reactivateProjectModalState.destination.startsWith("wt:")) reactivateProjectModalState.destination = "same_cwd";
       renderReactivateProjectModalState();
     });
 }

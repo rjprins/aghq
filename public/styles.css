@@ -1464,14 +1464,16 @@ button:disabled {
   color: color-mix(in srgb, var(--text) 65%, var(--accent));
 }
 
-.restore-session-modal .restore-cancel-btn {
+.restore-session-modal .restore-cancel-btn,
+.reactivate-project-modal .restore-cancel-btn {
   color: var(--text);
   border-color: color-mix(in srgb, var(--text) 45%, var(--line));
   background: color-mix(in srgb, var(--surface) 80%, var(--text) 8%);
   font-weight: 600;
 }
 
-.restore-session-modal .restore-cancel-btn:hover:not(:disabled) {
+.restore-session-modal .restore-cancel-btn:hover:not(:disabled),
+.reactivate-project-modal .restore-cancel-btn:hover:not(:disabled) {
   border-color: color-mix(in srgb, var(--text) 70%, var(--button-hover));
   background: color-mix(in srgb, var(--surface) 72%, var(--text) 12%);
 }
@@ -1481,7 +1483,8 @@ button:disabled {
   border-color: color-mix(in srgb, var(--line) 60%, var(--text) 20%);
 }
 
-.restore-session-modal .launch-modal-go.restoring:disabled {
+.restore-session-modal .launch-modal-go.restoring:disabled,
+.reactivate-project-modal .launch-modal-go.restoring:disabled {
   opacity: 1;
   color: var(--bg);
   border-color: color-mix(in srgb, var(--accent) 80%, var(--text) 20%);
@@ -1491,7 +1494,7 @@ button:disabled {
 .reactivate-project-modal {
   max-width: 980px;
   width: min(980px, calc(100vw - 32px));
-  max-height: min(86vh, 820px);
+  height: min(86vh, 820px);
 }
 
 .reactivate-project-header {
@@ -1520,17 +1523,29 @@ button:disabled {
   display: grid;
   grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
   gap: 16px;
+  flex: 1;
   min-height: 0;
 }
 
-.reactivate-project-sessions {
-  display: grid;
+.reactivate-sessions-pane {
+  display: flex;
+  flex-direction: column;
   gap: 8px;
+  min-height: 0;
+}
+
+.reactivate-session-list {
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
   padding-right: 4px;
 }
 
 .reactivate-session-item {
+  flex-shrink: 0;
   display: grid;
   gap: 6px;
   text-align: left;
@@ -1539,6 +1554,7 @@ button:disabled {
   border-radius: 8px;
   background: var(--surface);
   color: var(--text);
+  cursor: pointer;
 }
 
 .reactivate-session-item:hover {
@@ -1551,72 +1567,136 @@ button:disabled {
   background: color-mix(in srgb, var(--surface) 82%, var(--accent) 18%);
 }
 
-.reactivate-session-top {
+.reactivate-card-top {
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
 }
 
-.reactivate-session-title {
+.reactivate-card-title {
+  flex: 1;
+  min-width: 0;
   font-size: 13px;
   font-weight: 600;
-  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.reactivate-session-age {
-  margin-left: auto;
+.reactivate-card-age {
   color: var(--muted);
   font-size: 11px;
   flex-shrink: 0;
 }
 
-.reactivate-session-meta {
+.reactivate-card-hide {
+  flex-shrink: 0;
+  padding: 0 4px;
+  font-size: 13px;
+  line-height: 1.2;
   color: var(--muted);
-  font-size: 11px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  opacity: 0;
 }
 
-.reactivate-session-badges {
+.reactivate-session-item:hover .reactivate-card-hide,
+.reactivate-card-hide:focus-visible {
+  opacity: 1;
+}
+
+.reactivate-card-hide:hover {
+  color: var(--text);
+  background: color-mix(in srgb, var(--surface) 60%, var(--text) 12%);
+}
+
+.reactivate-card-chips {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
 }
 
-.reactivate-session-badges span {
+.reactivate-chip {
   font-size: 10px;
   color: var(--muted);
   border: 1px solid var(--line);
   border-radius: 999px;
   padding: 2px 6px;
   background: color-mix(in srgb, var(--surface) 72%, var(--panel) 28%);
+  max-width: 160px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.reactivate-session-snippet {
-  color: var(--text);
-  opacity: 0.75;
-  font-size: 11px;
-  line-height: 1.4;
+.reactivate-chip.restored {
+  color: color-mix(in srgb, var(--accent) 70%, var(--text));
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--line));
+}
+
+.reactivate-empty {
+  color: var(--muted);
+  font-size: 12px;
+  padding: 12px 4px;
+}
+
+.reactivate-detail {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.reactivate-detail-title {
+  font-size: 14px;
+  font-weight: 600;
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   overflow: hidden;
 }
 
-.reactivate-project-details {
-  min-width: 0;
+.reactivate-detail-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.reactivate-detail-provider {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.reactivate-first-prompt {
   display: grid;
-  gap: 12px;
+  gap: 4px;
+}
+
+.reactivate-first-prompt-text {
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text);
+  opacity: 0.8;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
 }
 
 .reactivate-preview {
-  display: grid;
-  gap: 8px;
+  flex: 1;
   min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .reactivate-preview-label {
@@ -1628,12 +1708,34 @@ button:disabled {
 }
 
 .reactivate-preview-body {
-  max-height: 260px;
+  flex: 1;
+  min-height: 80px;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 8px;
   padding-right: 4px;
+}
+
+.reactivate-destination {
+  display: grid;
+  gap: 8px;
+}
+
+.reactivate-destination-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.reactivate-destination-row .launch-modal-select {
+  flex: 1;
+  min-width: 0;
 }
 
 /* Session Preview Modal */
@@ -3079,12 +3181,18 @@ button:disabled {
     color: #f8f5ee;
   }
 
-  .reactivate-project-layout {
-    grid-template-columns: 1fr;
+  .reactivate-project-modal {
+    height: auto;
+    max-height: calc(100dvh - 24px);
   }
 
-  .reactivate-project-sessions {
-    max-height: 220px;
+  .reactivate-project-layout {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .reactivate-session-list {
+    max-height: 200px;
   }
 }
 

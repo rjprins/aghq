@@ -3,6 +3,8 @@ import { render } from "preact";
 export type SessionPreviewMessage = {
   role: "user" | "assistant";
   text: string;
+  /** Epoch ms of the log entry, when the log records one. */
+  ts?: number | null;
 };
 
 export type SessionPreviewModalViewModel = {
