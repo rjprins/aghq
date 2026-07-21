@@ -94,6 +94,13 @@ async function listRunningPtys(page: Page, token: string): Promise<string[]> {
   return ptys.filter((p) => p.status === "running").map((p) => p.id);
 }
 
+// Spawn a plain shell the way the old "New" button did (create + activate).
+// The button now opens the launch modal, so tests create shells via the test hook.
+async function newShellSession(page: Page): Promise<void> {
+  await page.waitForFunction(() => Boolean((window as { __agmux?: { newShell?: unknown } }).__agmux?.newShell));
+  await page.evaluate(() => (window as { __agmux: { newShell: () => Promise<void> } }).__agmux.newShell());
+}
+
 async function writeTriggersAndReload(page: Page, token: string, moduleSource: string): Promise<void> {
   fs.writeFileSync(TRIGGERS_FILE, moduleSource, "utf8");
   const res = await page.request.post(`/api/triggers/reload?token=${encodeURIComponent(token)}`, { timeout: 10_000 });
@@ -251,7 +258,7 @@ test("normalizes copied terminal selection whitespace", async ({ page }) => {
 
 test("can create a PTY and fires proceed trigger", async ({ page }) => {
   await page.goto("/?nosup=1");
-  await page.getByRole("button", { name: "New" }).click();
+  await newShellSession(page);
 
   // PTY should appear and become active.
   await expect(page.locator(".pty-item.active")).toHaveCount(1);
@@ -298,10 +305,19 @@ test("can create a PTY and fires proceed trigger", async ({ page }) => {
   }
 });
 
+test("New button opens the launch modal with searchable pickers", async ({ page }) => {
+  await page.goto("/?nosup=1");
+  await page.getByRole("button", { name: "New" }).click();
+  await expect(page.locator(".launch-modal h3")).toContainText("Launch agent");
+  // The pickers are the searchable comboboxes, always present.
+  await expect(page.getByRole("combobox", { name: "Project directory" })).toBeVisible();
+  await expect(page.getByRole("combobox", { name: "Worktree" })).toBeVisible();
+});
+
 test("collapsing the sidebar widens the terminal instead of crushing it", async ({ page }) => {
   const token = await readSessionToken(page);
   await page.goto("/?nosup=1");
-  await page.getByRole("button", { name: "New" }).click();
+  await newShellSession(page);
   await expect(page.locator(".pty-item.active")).toHaveCount(1);
 
   const ptyId = await page.locator(".pty-item.active").evaluate((el) => el.getAttribute("data-pty-id"));
@@ -388,7 +404,7 @@ test("trigger hooks can spawn a worker PTY and react to worker output", async ({
     await writeTriggersAndReload(page, token, SWARM_TRIGGER_MODULE);
 
     await page.goto("/?nosup=1");
-    await page.getByRole("button", { name: "New" }).click();
+    await newShellSession(page);
     await expect(page.locator(".pty-item.active")).toHaveCount(1);
 
     controllerId = await page.locator(".pty-item.active").evaluate((el) => el.getAttribute("data-pty-id"));
@@ -613,7 +629,7 @@ test("xterm viewport scrolls with mouse wheel", async ({ page }) => {
     `,
   });
 
-  await page.getByRole("button", { name: "New" }).click();
+  await newShellSession(page);
   await expect(page.locator(".pty-item.active")).toHaveCount(1);
 
   // Produce enough output to have scrollback.
@@ -664,7 +680,7 @@ test("scroll up after cat reveals the cat command", async ({ page }) => {
     `,
   });
 
-  await page.getByRole("button", { name: "New" }).click();
+  await newShellSession(page);
   await expect(page.locator(".pty-item.active")).toHaveCount(1);
 
   const xterm = page.locator(".term-pane:not(.hidden) .xterm");
@@ -721,7 +737,7 @@ test("clicking a history entry scrolls the terminal to that command", async ({ p
     `,
   });
 
-  await page.getByRole("button", { name: "New" }).click();
+  await newShellSession(page);
   await expect(page.locator(".pty-item.active")).toHaveCount(1);
 
   const dumpActive = () =>
@@ -794,7 +810,7 @@ test("clicking an older duplicate history entry scrolls to its own occurrence", 
     `,
   });
 
-  await page.getByRole("button", { name: "New" }).click();
+  await newShellSession(page);
   await expect(page.locator(".pty-item.active")).toHaveCount(1);
 
   const dumpActive = () =>
@@ -869,7 +885,7 @@ test("auto-attaches a live claude session and scrolls to a transcript prompt", a
     `,
   });
 
-  await page.getByRole("button", { name: "New" }).click();
+  await newShellSession(page);
   await expect(page.locator(".pty-item.active")).toHaveCount(1);
   ptyId = await page.locator(".pty-item.active").evaluate((el) => el.getAttribute("data-pty-id"));
 
@@ -937,7 +953,7 @@ test("auto-attaches a live claude session and scrolls to a transcript prompt", a
 
 test("pty list shows running subprocess name", async ({ page }) => {
   await page.goto("/?nosup=1");
-  await page.getByRole("button", { name: "New" }).click();
+  await newShellSession(page);
   await expect(page.locator(".pty-item.active")).toHaveCount(1);
 
   const ptyId = await page.locator(".pty-item.active").evaluate((el) => el.getAttribute("data-pty-id"));
@@ -958,7 +974,7 @@ test("pty list shows running subprocess name", async ({ page }) => {
 
 test("pty list item shows current working directory", async ({ page }) => {
   await page.goto("/?nosup=1");
-  await page.getByRole("button", { name: "New" }).click();
+  await newShellSession(page);
   await expect(page.locator(".pty-item.active")).toHaveCount(1);
 
   const ptyId = await page.locator(".pty-item.active").evaluate((el) => el.getAttribute("data-pty-id"));
@@ -984,7 +1000,7 @@ test("pty list item shows current working directory", async ({ page }) => {
 
 test("pty readiness flips busy to ready around subprocess execution", async ({ page }) => {
   await page.goto("/?nosup=1");
-  await page.getByRole("button", { name: "New" }).click();
+  await newShellSession(page);
   await expect(page.locator(".pty-item.active")).toHaveCount(1);
 
   const ptyId = await page.locator(".pty-item.active").evaluate((el) => el.getAttribute("data-pty-id"));
@@ -1006,7 +1022,7 @@ test("pty readiness flips busy to ready around subprocess execution", async ({ p
 
 test("pty readiness settles back to ready for immediate prompt commands", async ({ page }) => {
   await page.goto("/?nosup=1");
-  await page.getByRole("button", { name: "New" }).click();
+  await newShellSession(page);
   await expect(page.locator(".pty-item.active")).toHaveCount(1);
 
   const ptyId = await page.locator(".pty-item.active").evaluate((el) => el.getAttribute("data-pty-id"));
@@ -1029,7 +1045,7 @@ test("pty readiness settles back to ready for immediate prompt commands", async 
 
 test("pty readiness flips to busy during sustained output", async ({ page }) => {
   await page.goto("/?nosup=1");
-  await page.getByRole("button", { name: "New" }).click();
+  await newShellSession(page);
   await expect(page.locator(".pty-item.active")).toHaveCount(1);
 
   const ptyId = await page.locator(".pty-item.active").evaluate((el) => el.getAttribute("data-pty-id"));
@@ -1259,7 +1275,7 @@ test("escape key is delivered to tmux session promptly", async ({ page }) => {
 
 test("reopening running tmux PTY after refresh shows output without wheel scroll", async ({ page }) => {
   await page.goto("/?nosup=1");
-  await page.getByRole("button", { name: "New" }).click();
+  await newShellSession(page);
   await expect(page.locator(".pty-item.active")).toHaveCount(1);
 
   const ptyId = await page.locator(".pty-item.active").evaluate((el) => el.getAttribute("data-pty-id"));
@@ -1318,12 +1334,12 @@ test("each browser tab restores its own active PTY after reload", async ({ page 
     }, token);
     await page2.goto("/?nosup=1");
 
-    await page.getByRole("button", { name: "New" }).click();
+    await newShellSession(page);
     await expect(page.locator(".pty-item.active")).toHaveCount(1);
     firstTabPtyId = await page.locator(".pty-item.active").evaluate((el) => el.getAttribute("data-pty-id"));
     if (!firstTabPtyId) throw new Error("missing first tab PTY id");
 
-    await page2.getByRole("button", { name: "New" }).click();
+    await newShellSession(page2);
     await expect(page2.locator(".pty-item.active")).toHaveCount(1);
     secondTabPtyId = await page2.locator(".pty-item.active").evaluate((el) => el.getAttribute("data-pty-id"));
     if (!secondTabPtyId) throw new Error("missing second tab PTY id");
@@ -1346,7 +1362,7 @@ test("each browser tab restores its own active PTY after reload", async ({ page 
 
 test("ready PTY keeps last input visible after reload", async ({ page }) => {
   await page.goto("/?nosup=1");
-  await page.getByRole("button", { name: "New" }).click();
+  await newShellSession(page);
   await expect(page.locator(".pty-item.active")).toHaveCount(1);
 
   const marker = "__last_input_ready__";
@@ -1383,7 +1399,7 @@ test("input context bar keeps recent history visible across PTY switches", async
   try {
     await killAllRunningPtys(page, token);
 
-    await page.getByRole("button", { name: "New" }).click();
+    await newShellSession(page);
     await expect(page.locator(".pty-item.active")).toHaveCount(1);
     ptyOne = await page.locator(".pty-item.active").evaluate((el) => el.getAttribute("data-pty-id"));
     if (!ptyOne) throw new Error("missing PTY one id");
@@ -1417,7 +1433,7 @@ test("input context bar keeps recent history visible across PTY switches", async
     await expect(page.locator("#input-history-list")).toContainText("pwd", { timeout: 10_000 });
     await expect(page.locator("#input-history-list")).toContainText("echo __ctx_pty_one__", { timeout: 10_000 });
 
-    await page.getByRole("button", { name: "New" }).click();
+    await newShellSession(page);
     await expect(page.locator(".pty-item.active")).toHaveCount(1);
     ptyTwo = await page.locator(".pty-item.active").evaluate((el) => el.getAttribute("data-pty-id"));
     if (!ptyTwo) throw new Error("missing PTY two id");
@@ -1489,7 +1505,7 @@ test("switching between multiple PTYs keeps each terminal's content distinct", a
 
     for (const marker of markers) {
       const prevActivePtyId = ptys.length > 0 ? ptys[ptys.length - 1].id : null;
-      await page.getByRole("button", { name: "New" }).click();
+      await newShellSession(page);
       await expect(page.locator(".pty-item.active")).toHaveCount(1);
       if (prevActivePtyId) {
         await expect.poll(readActivePtyId, { timeout: 10_000 }).not.toBe(prevActivePtyId);
@@ -1540,7 +1556,7 @@ test("switching between multiple PTYs keeps each terminal's content distinct", a
 
 test("OSC window title appears in sidebar secondary text", async ({ page }) => {
   await page.goto("/?nosup=1");
-  await page.getByRole("button", { name: "New" }).click();
+  await newShellSession(page);
   await expect(page.locator(".pty-item.active")).toHaveCount(1);
 
   const ptyId = await page.locator(".pty-item.active").evaluate((el) => el.getAttribute("data-pty-id"));

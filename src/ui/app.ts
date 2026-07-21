@@ -5575,9 +5575,9 @@ async function attachTmuxSession(selected: TmuxSessionInfo): Promise<void> {
 }
 
 btnNew.addEventListener("click", () => {
-  newShell().catch(() => {
-    // ignore
-  });
+  // Global entry to the launch modal; no project preselected → defaults to a custom path.
+  // Quick plain shell lives on Ctrl+Shift+` (see newShell).
+  openLaunchModal("");
 });
 
 btnFollow.addEventListener("click", () => {
@@ -6202,6 +6202,8 @@ function dumpBuffer(st: TermState, maxLines = 120): string {
 
 (window as any).__agmux = {
   activePtyId: () => activePtyId,
+  // The "New" button now opens the launch modal; e2e spawns plain shells through this.
+  newShell: () => newShell(),
   cleanupCopiedTerminalText,
   dumpActive: () => {
     if (!activePtyId) return "";
