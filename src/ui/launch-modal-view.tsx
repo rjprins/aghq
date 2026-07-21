@@ -125,18 +125,16 @@ export function renderLaunchModal(
           )}
         </div>
 
-        <label className="launch-modal-label">
+        <div className="launch-modal-label">
           Project directory
-          <select
-            className="launch-modal-select"
+          <Combobox
+            options={model.directoryOptions}
             value={model.selectedDirectory}
-            onChange={(ev) => handlers.onDirectoryChange((ev.currentTarget as HTMLSelectElement).value)}
-          >
-            {model.directoryOptions.map((dir) => (
-              <option key={dir.value} value={dir.value}>{dir.label}</option>
-            ))}
-          </select>
-        </label>
+            placeholder="Search projects…"
+            ariaLabel="Project directory"
+            onSelect={handlers.onDirectoryChange}
+          />
+        </div>
 
         {showCustomDirectory ? (
           <label className="launch-modal-label">
