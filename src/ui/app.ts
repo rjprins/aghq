@@ -2163,18 +2163,22 @@ function buildWorktreeOptions(
   worktrees?: Array<{ name: string; path: string }>,
   allowNewWorktree = true,
 ): WorktreeOption[] {
+  // "+ New worktree" and "Current (…)" stay pinned on top; real worktrees sort A→Z below them.
   const options: WorktreeOption[] = allowNewWorktree ? [{ value: "__new__", label: "+ New worktree" }] : [];
   if (groupCwd) {
     const name = groupCwd.split("/").filter(Boolean).at(-1) ?? groupCwd;
     options.push({ value: groupCwd, label: `Current (${name})` });
   }
+  const rest: WorktreeOption[] = [];
   if (Array.isArray(worktrees)) {
     for (const wt of worktrees) {
       if (!wt || typeof wt.path !== "string" || typeof wt.name !== "string") continue;
       if (groupCwd && wt.path === groupCwd) continue;
-      options.push({ value: wt.path, label: wt.name });
+      rest.push({ value: wt.path, label: wt.name });
     }
   }
+  rest.sort((a, b) => a.label.localeCompare(b.label));
+  options.push(...rest);
   return options;
 }
 
@@ -2182,20 +2186,25 @@ function buildBranchOptions(
   branches?: Array<{ name: string }>,
   preferredBranch?: string,
 ): WorktreeOption[] {
+  // Preferred/default branch stays pinned on top; the rest sort A→Z below it.
   const names = new Set<string>();
-  const options: WorktreeOption[] = [];
-  const addBranch = (name: unknown) => {
+  const rest: WorktreeOption[] = [];
+  let preferred: WorktreeOption | undefined;
+  const addBranch = (name: unknown, isPreferred = false) => {
     if (typeof name !== "string") return;
     const trimmed = name.trim();
     if (!trimmed || names.has(trimmed)) return;
     names.add(trimmed);
-    options.push({ value: trimmed, label: trimmed });
+    const option = { value: trimmed, label: trimmed };
+    if (isPreferred) preferred = option;
+    else rest.push(option);
   };
-  addBranch(preferredBranch);
+  addBranch(preferredBranch, true);
   if (Array.isArray(branches)) {
     for (const branch of branches) addBranch(branch?.name);
   }
-  return options;
+  rest.sort((a, b) => a.label.localeCompare(b.label));
+  return preferred ? [preferred, ...rest] : rest;
 }
 
 function syncBaseBranchSelection(state: LaunchModalState): void {

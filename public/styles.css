@@ -1357,6 +1357,59 @@ button:disabled {
   color: var(--muted);
 }
 
+.combobox {
+  position: relative;
+}
+
+.combobox-input {
+  width: 100%;
+  box-sizing: border-box;
+  cursor: text;
+}
+
+.combobox-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 10;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  max-height: 240px;
+  overflow-y: auto;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+  font-size: 13px;
+  color: var(--text);
+}
+
+.combobox-option {
+  padding: 6px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.combobox-option.highlighted {
+  background: var(--accent);
+  color: var(--bg);
+}
+
+.combobox-option.selected:not(.highlighted) {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.combobox-empty {
+  padding: 6px 8px;
+  color: var(--muted);
+}
+
 .launch-modal-options {
   display: flex;
   flex-direction: column;
@@ -3168,6 +3221,21 @@ button:disabled {
     background: rgba(255, 255, 255, 0.9);
     color: #1f1b16;
     border-color: rgba(31, 27, 22, 0.2);
+  }
+
+  /* Match the paper-themed inputs above (the menu uses --panel, which stays dark). */
+  .combobox-menu {
+    background: #fefaf1;
+    color: #1f1b16;
+    border-color: rgba(31, 27, 22, 0.2);
+  }
+
+  .combobox-option.highlighted {
+    color: #1f1b16;
+  }
+
+  .combobox-option.selected:not(.highlighted) {
+    color: #8a6d1a;
   }
 
   .launch-modal-agent-button {

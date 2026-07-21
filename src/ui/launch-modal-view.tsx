@@ -1,4 +1,5 @@
 import { render } from "preact";
+import { Combobox } from "./combobox";
 
 export type LaunchOptionControl =
   | {
@@ -150,18 +151,17 @@ export function renderLaunchModal(
           </label>
         ) : null}
 
-        <label className="launch-modal-label">
+        {/* div, not label: a <label> forwards clicks to its control, which fights the option list */}
+        <div className="launch-modal-label">
           Worktree
-          <select
-            className="launch-modal-select"
+          <Combobox
+            options={model.worktreeOptions}
             value={model.selectedWorktree}
-            onChange={(ev) => handlers.onWorktreeChange((ev.currentTarget as HTMLSelectElement).value)}
-          >
-            {model.worktreeOptions.map((worktree) => (
-              <option key={worktree.value} value={worktree.value}>{worktree.label}</option>
-            ))}
-          </select>
-        </label>
+            placeholder="Search worktrees…"
+            ariaLabel="Worktree"
+            onSelect={handlers.onWorktreeChange}
+          />
+        </div>
 
         <label className={`launch-modal-label launch-modal-branch${showBranchInput ? "" : " hidden"}`}>
           Branch name (optional)
@@ -174,19 +174,17 @@ export function renderLaunchModal(
           />
         </label>
 
-        <label className={`launch-modal-label launch-modal-branch${showBranchInput ? "" : " hidden"}`}>
+        <div className={`launch-modal-label launch-modal-branch${showBranchInput ? "" : " hidden"}`}>
           Base branch
           {model.baseBranchOptions.length > 0
             ? (
-              <select
-                className="launch-modal-select"
+              <Combobox
+                options={model.baseBranchOptions}
                 value={model.baseBranchValue}
-                onChange={(ev) => handlers.onBaseBranchChange((ev.currentTarget as HTMLSelectElement).value)}
-              >
-                {model.baseBranchOptions.map((branch) => (
-                  <option key={branch.value} value={branch.value}>{branch.label}</option>
-                ))}
-              </select>
+                placeholder="Search branches…"
+                ariaLabel="Base branch"
+                onSelect={handlers.onBaseBranchChange}
+              />
             )
             : (
               <input
@@ -197,7 +195,7 @@ export function renderLaunchModal(
                 onInput={(ev) => handlers.onBaseBranchChange((ev.currentTarget as HTMLInputElement).value)}
               />
             )}
-        </label>
+        </div>
 
         <div className="launch-modal-buttons">
           <button type="button" onClick={() => handlers.onClose()}>Cancel</button>
