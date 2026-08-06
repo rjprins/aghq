@@ -314,6 +314,41 @@ test("New button opens the launch modal with searchable pickers", async ({ page 
   await expect(page.getByRole("combobox", { name: "Worktree" })).toBeVisible();
 });
 
+test("launch modal and searchable dropdowns stay inside a short viewport", async ({ page }) => {
+  for (const viewport of [{ width: 900, height: 500 }, { width: 320, height: 480 }]) {
+    await page.setViewportSize(viewport);
+    await page.goto("/?nosup=1");
+    await page.getByRole("button", { name: "New" }).click();
+
+    const modal = page.locator(".launch-modal");
+    await expect(modal).toBeVisible();
+    const modalBox = await modal.boundingBox();
+    expect(modalBox).not.toBeNull();
+    expect(modalBox!.x).toBeGreaterThanOrEqual(0);
+    expect(modalBox!.y).toBeGreaterThanOrEqual(0);
+    expect(modalBox!.x + modalBox!.width).toBeLessThanOrEqual(viewport.width);
+    expect(modalBox!.y + modalBox!.height).toBeLessThanOrEqual(viewport.height);
+
+    for (const name of ["Project directory", "Worktree"]) {
+      const picker = page.getByRole("combobox", { name });
+      await picker.scrollIntoViewIfNeeded();
+      await picker.click();
+
+      const menu = page.locator(".combobox-menu");
+      await expect(menu).toBeVisible();
+      const menuBox = await menu.boundingBox();
+      expect(menuBox).not.toBeNull();
+      expect(menuBox!.x).toBeGreaterThanOrEqual(0);
+      expect(menuBox!.y).toBeGreaterThanOrEqual(0);
+      expect(menuBox!.x + menuBox!.width).toBeLessThanOrEqual(viewport.width);
+      expect(menuBox!.y + menuBox!.height).toBeLessThanOrEqual(viewport.height);
+
+      await page.keyboard.press("Escape");
+      await expect(menu).toHaveCount(0);
+    }
+  }
+});
+
 test("collapsing the sidebar widens the terminal instead of crushing it", async ({ page }) => {
   const token = await readSessionToken(page);
   await page.goto("/?nosup=1");

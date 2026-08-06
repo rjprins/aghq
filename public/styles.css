@@ -1147,6 +1147,7 @@ button:disabled {
   border-radius: 8px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
   max-height: min(320px, 45vh);
+  max-height: min(320px, 45dvh);
   overflow-x: hidden;
   overflow-y: auto;
   display: grid;
@@ -1276,6 +1277,10 @@ button:disabled {
   padding: 16px 20px;
   width: min(420px, calc(100vw - 24px));
   max-width: calc(100vw - 24px);
+  max-height: calc(100vh - 24px);
+  max-height: calc(100dvh - 24px);
+  overflow-y: auto;
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -1368,22 +1373,27 @@ button:disabled {
 }
 
 .combobox-menu {
-  position: absolute;
-  top: calc(100% + 4px);
+  position: fixed;
+  top: 0;
   left: 0;
-  right: 0;
-  z-index: 10;
+  z-index: 1100;
   margin: 0;
   padding: 4px;
   list-style: none;
   max-height: 240px;
   overflow-y: auto;
+  box-sizing: border-box;
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 6px;
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
   font-size: 13px;
   color: var(--text);
+}
+
+.combobox-menu.measuring {
+  visibility: hidden;
+  pointer-events: none;
 }
 
 .combobox-option {
@@ -1795,6 +1805,7 @@ button:disabled {
 .session-preview-modal {
   max-width: 640px;
   max-height: 80vh;
+  max-height: 80dvh;
   display: flex;
   flex-direction: column;
 }
@@ -3056,6 +3067,7 @@ button:disabled {
   .mobile-sheet-panel {
     width: min(520px, 100%);
     max-height: 80vh;
+    max-height: 80dvh;
     background: #fefaf1;
     border-radius: 20px 20px 10px 10px;
     padding: 16px;
@@ -3269,6 +3281,7 @@ button:disabled {
 .worktrees-panel {
   width: min(880px, calc(100vw - 24px));
   max-height: calc(100vh - 48px);
+  max-height: calc(100dvh - 48px);
   overflow-y: auto;
   gap: 10px;
 }

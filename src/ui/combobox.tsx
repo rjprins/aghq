@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "preact/hooks";
+import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 
 export type ComboOption = { value: string; label: string };
 
@@ -10,6 +10,17 @@ export type ComboboxProps = {
   ariaLabel?: string;
 };
 
+type MenuLayout = {
+  left: number;
+  top: number;
+  width: number;
+  maxHeight: number;
+};
+
+const MENU_GAP = 4;
+const MENU_MAX_HEIGHT = 240;
+const VIEWPORT_GUTTER = 12;
+
 /**
  * Type-to-filter picker over `options` (pass them pre-sorted; pinned entries first).
  * Self-contained UI state — the parent only owns the selected `value`.
@@ -18,6 +29,8 @@ export function Combobox({ options, value, onSelect, placeholder, ariaLabel }: C
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [highlight, setHighlight] = useState(0);
+  const [menuLayout, setMenuLayout] = useState<MenuLayout | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
 
   const q = query.trim().toLowerCase();
@@ -27,19 +40,82 @@ export function Combobox({ options, value, onSelect, placeholder, ariaLabel }: C
   // Keep the highlighted row visible while arrowing through a long list.
   useEffect(() => {
     if (!open) return;
-    const el = listRef.current?.children[highlight] as HTMLElement | undefined;
-    el?.scrollIntoView({ block: "nearest" });
+    const list = listRef.current;
+    const el = list?.children[highlight] as HTMLElement | undefined;
+    if (!list || !el) return;
+    if (el.offsetTop < list.scrollTop) list.scrollTop = el.offsetTop;
+    else if (el.offsetTop + el.offsetHeight > list.scrollTop + list.clientHeight) {
+      list.scrollTop = el.offsetTop + el.offsetHeight - list.clientHeight;
+    }
   }, [open, highlight]);
+
+  const updateMenuLayout = () => {
+    const input = inputRef.current;
+    const menu = listRef.current;
+    if (!input || !menu) return;
+
+    const inputBox = input.getBoundingClientRect();
+    const visualViewport = window.visualViewport;
+    const viewportLeft = visualViewport?.offsetLeft ?? 0;
+    const viewportTop = visualViewport?.offsetTop ?? 0;
+    const viewportWidth = visualViewport?.width ?? document.documentElement.clientWidth;
+    const viewportHeight = visualViewport?.height ?? document.documentElement.clientHeight;
+    const viewportRight = viewportLeft + viewportWidth;
+    const viewportBottom = viewportTop + viewportHeight;
+    const menuStyles = window.getComputedStyle(menu);
+    const menuBorderHeight = Number.parseFloat(menuStyles.borderTopWidth) + Number.parseFloat(menuStyles.borderBottomWidth);
+    const desiredHeight = Math.min(MENU_MAX_HEIGHT, menu.scrollHeight + menuBorderHeight);
+    const spaceAbove = Math.max(0, inputBox.top - viewportTop - VIEWPORT_GUTTER - MENU_GAP);
+    const spaceBelow = Math.max(0, viewportBottom - inputBox.bottom - VIEWPORT_GUTTER - MENU_GAP);
+    const placeAbove = spaceBelow < desiredHeight && spaceAbove > spaceBelow;
+    const availableHeight = placeAbove ? spaceAbove : spaceBelow;
+    const maxHeight = Math.min(MENU_MAX_HEIGHT, Math.floor(availableHeight));
+    const renderedHeight = Math.min(desiredHeight, maxHeight);
+    const width = Math.min(inputBox.width, Math.max(0, viewportWidth - VIEWPORT_GUTTER * 2));
+    const left = Math.min(
+      Math.max(inputBox.left, viewportLeft + VIEWPORT_GUTTER),
+      viewportRight - VIEWPORT_GUTTER - width,
+    );
+
+    setMenuLayout({
+      left,
+      top: placeAbove ? inputBox.top - MENU_GAP - renderedHeight : inputBox.bottom + MENU_GAP,
+      width,
+      maxHeight,
+    });
+  };
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    updateMenuLayout();
+  }, [open, filtered.length]);
+
+  useEffect(() => {
+    if (!open) return;
+    const update = () => updateMenuLayout();
+    window.addEventListener("resize", update);
+    window.addEventListener("scroll", update, true);
+    window.visualViewport?.addEventListener("resize", update);
+    window.visualViewport?.addEventListener("scroll", update);
+    return () => {
+      window.removeEventListener("resize", update);
+      window.removeEventListener("scroll", update, true);
+      window.visualViewport?.removeEventListener("resize", update);
+      window.visualViewport?.removeEventListener("scroll", update);
+    };
+  }, [open, filtered.length]);
 
   const openMenu = () => {
     const idx = options.findIndex((o) => o.value === value);
     setQuery("");
     setHighlight(idx >= 0 ? idx : 0);
+    setMenuLayout(null);
     setOpen(true);
   };
   const close = () => {
     setOpen(false);
     setQuery("");
+    setMenuLayout(null);
   };
   const choose = (val: string) => {
     onSelect(val);
@@ -74,6 +150,7 @@ export function Combobox({ options, value, onSelect, placeholder, ariaLabel }: C
   return (
     <div className="combobox">
       <input
+        ref={inputRef}
         type="text"
         className="launch-modal-input combobox-input"
         role="combobox"
@@ -93,7 +170,19 @@ export function Combobox({ options, value, onSelect, placeholder, ariaLabel }: C
       />
       {open
         ? (
-          <ul className="combobox-menu" ref={listRef} role="listbox">
+          <ul
+            className={`combobox-menu${menuLayout ? "" : " measuring"}`}
+            ref={listRef}
+            role="listbox"
+            style={menuLayout
+              ? {
+                left: `${menuLayout.left}px`,
+                top: `${menuLayout.top}px`,
+                width: `${menuLayout.width}px`,
+                maxHeight: `${menuLayout.maxHeight}px`,
+              }
+              : undefined}
+          >
             {filtered.length === 0
               ? <li className="combobox-empty">No matches</li>
               : filtered.map((o, i) => (
