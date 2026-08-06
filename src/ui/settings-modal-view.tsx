@@ -4,6 +4,7 @@ import {
   type ClaudeEffortLevel,
   type ClaudeModelPreset,
 } from "../shared/claude-model-presets.js";
+import { formatKeybinding, type Keybinding } from "../shared/keybindings.js";
 
 export type ThemeOption = {
   key: string;
@@ -21,6 +22,7 @@ export type SettingsModalViewModel = {
   tmuxSessionKey: string;
   tmuxSessions: Array<{ key: string; label: string }>;
   claudeModelPresets: ClaudeModelPreset[];
+  claudeModelShortcut: Keybinding;
 };
 
 export type SettingsModalHandlers = {
@@ -61,6 +63,8 @@ export function renderSettingsModal(
     render(null, root);
     return;
   }
+
+  const claudeShortcutParts = formatKeybinding(model.claudeModelShortcut);
 
   render(
     <div
@@ -131,7 +135,11 @@ export function renderSettingsModal(
           <legend>Claude model presets</legend>
           <div className="settings-preset-toolbar">
             <span className="settings-help">
-              Used by <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>M</kbd> in Claude terminals.
+              Used by {claudeShortcutParts.map((part, index) => (
+                <span key={`${part}-${index}`}>
+                  {index > 0 ? "+" : null}<kbd>{part}</kbd>
+                </span>
+              ))} in Claude terminals.
             </span>
             <button
               type="button"

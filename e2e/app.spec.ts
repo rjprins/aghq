@@ -1766,7 +1766,54 @@ test("settings modal creates, reorders, and persists Claude model presets", asyn
   }
 });
 
-test("Ctrl-Shift-M cycles, cancels, and submits Claude model presets", async ({ page }) => {
+test("keybindings popup captures, persists, rejects duplicates, and resets shortcuts", async ({ page }) => {
+  await page.goto("/?nosup=1");
+  const token = await readSessionToken(page);
+  const app = page.locator("#app");
+
+  try {
+    const keybindingsTrigger = page.getByTitle("Keybindings");
+    await keybindingsTrigger.click();
+    const popup = page.getByRole("dialog", { name: "Keybindings" });
+    await expect(popup).toBeVisible();
+    await expect(popup.getByRole("button", { name: "Change shortcut for New shell" })).toBeFocused();
+
+    const toggleBinding = popup.getByRole("button", { name: "Change shortcut for Toggle sidebar" });
+    await toggleBinding.click();
+    await expect(toggleBinding).toContainText("Press shortcut");
+    await page.keyboard.press("Alt+Shift+KeyB");
+    await expect(toggleBinding).toContainText("Alt+Shift+B");
+
+    await page.keyboard.press("Escape");
+    await expect(popup).toHaveCount(0);
+    await expect(keybindingsTrigger).toBeFocused();
+    await expect(app).not.toHaveClass(/sidebar-collapsed/);
+    await page.keyboard.press("Alt+Shift+KeyB");
+    await expect(app).toHaveClass(/sidebar-collapsed/);
+
+    await page.reload();
+    await page.getByTitle("Keybindings").click();
+    await expect(toggleBinding).toContainText("Alt+Shift+B");
+
+    const nextBinding = popup.getByRole("button", { name: "Change shortcut for Next PTY" });
+    await nextBinding.click();
+    await page.keyboard.press("Alt+Shift+KeyB");
+    await expect(popup.getByRole("status")).toContainText("already used by Toggle sidebar");
+    await expect(nextBinding).toContainText("Press shortcut");
+    await page.keyboard.press("Escape");
+    await expect(popup).toBeVisible();
+
+    await toggleBinding.click();
+    await page.keyboard.press("Backspace");
+    await expect(toggleBinding).toContainText("Ctrl+Shift+\\");
+  } finally {
+    await page.request.put(`/api/settings?token=${encodeURIComponent(token)}`, {
+      data: { keybindings: {} },
+    });
+  }
+});
+
+test("configured shortcut cycles, cancels, and submits Claude model presets", async ({ page }) => {
   const hasTmux = await commandAvailable("tmux", ["-V"]);
   test.skip(!hasTmux, "requires tmux");
   const logRoot = process.env.E2E_AGENT_LOG_ROOT;
@@ -1790,6 +1837,9 @@ test("Ctrl-Shift-M cycles, cancels, and submits Claude model presets", async ({ 
         { id: "fast", name: "Fast", model: "sonnet", effort: "low" },
         { id: "deep", name: "Deep review", model: "claude-opus-4-7", effort: "xhigh" },
       ],
+      keybindings: {
+        claudeModelPreset: { code: "KeyM", ctrl: false, shift: true, alt: true, meta: false },
+      },
     },
   });
 
@@ -1840,11 +1890,11 @@ test("Ctrl-Shift-M cycles, cancels, and submits Claude model presets", async ({ 
     const chooser = page.getByRole("dialog", { name: "Switch Claude model" });
     await page.keyboard.press("Alt+KeyM");
     await expect(chooser).toHaveCount(0);
-    await page.keyboard.press("Control+Shift+KeyM");
+    await page.keyboard.press("Alt+Shift+KeyM");
     await expect(chooser).toBeVisible();
     await expect(chooser.getByRole("option", { name: /Fast/ })).toHaveAttribute("aria-selected", "true");
 
-    await page.keyboard.press("Control+Shift+KeyM");
+    await page.keyboard.press("Alt+Shift+KeyM");
     await expect(chooser.getByRole("option", { name: /Deep review/ })).toHaveAttribute("aria-selected", "true");
     await page.keyboard.press("Control+Enter");
     await expect(chooser).toBeVisible();
@@ -1854,8 +1904,8 @@ test("Ctrl-Shift-M cycles, cancels, and submits Claude model presets", async ({ 
     const dumpActive = () => page.evaluate(() => String((window as any).__agmux?.dumpActive?.() ?? ""));
     expect(await dumpActive()).not.toContain("/model claude-opus-4-7");
 
-    await page.keyboard.press("Control+Shift+KeyM");
-    await page.keyboard.press("Control+Shift+KeyM");
+    await page.keyboard.press("Alt+Shift+KeyM");
+    await page.keyboard.press("Alt+Shift+KeyM");
     await page.keyboard.press("Enter");
     await expect(chooser).toHaveCount(0);
     await expect.poll(dumpActive, { timeout: 10_000 }).toContain("/model claude-opus-4-7");
@@ -1863,7 +1913,7 @@ test("Ctrl-Shift-M cycles, cancels, and submits Claude model presets", async ({ 
   } finally {
     if (ptyId) await killPty(page, token, ptyId).catch(() => {});
     await page.request.put(`/api/settings?token=${encodeURIComponent(token)}`, {
-      data: { claudeModelPresets: [] },
+      data: { claudeModelPresets: [], keybindings: {} },
     }).catch(() => {});
     fs.rmSync(binDir, { recursive: true, force: true });
     fs.rmSync(logFile, { force: true });

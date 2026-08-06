@@ -29,6 +29,19 @@ import {
   type ClaudeModelPreset,
 } from "../shared/claude-model-presets.js";
 import {
+  DEFAULT_KEYBINDINGS,
+  KEYBINDING_ACTIONS,
+  formatKeybinding,
+  keybindingFromEvent,
+  keybindingMatches,
+  parseKeybindingOverrides,
+  resolveKeybindings,
+  validateKeybindingOverrides,
+  type Keybinding,
+  type KeybindingActionId,
+  type KeybindingOverrides,
+} from "../shared/keybindings.js";
+import {
   renderPtyList,
   type InactiveGroup,
   type InactivePtyItem,
@@ -92,6 +105,10 @@ import {
   type ClaudeModelPresetOverlayViewModel,
 } from "./claude-model-preset-overlay-view";
 import {
+  renderKeybindingsPopup,
+  type KeybindingsPopupViewModel,
+} from "./keybindings-popup-view";
+import {
   renderReactivateProjectModal,
   type ReactivateProjectModalViewModel,
 } from "./reactivate-project-modal-view";
@@ -140,6 +157,8 @@ document.body.appendChild(mobileRoot);
 let ptys: PtySummary[] = [];
 let agentSessions: AgentSessionSummary[] = [];
 let claudeModelPresets: ClaudeModelPreset[] = [];
+let keybindingOverrides: KeybindingOverrides = {};
+let resolvedKeybindings = resolveKeybindings(keybindingOverrides);
 let activePtyId: string | null = null;
 let pendingActivePtyId: string | null = null;
 let inputHistoryExpanded = false;
@@ -1427,11 +1446,14 @@ async function authFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
   });
 }
 
-async function loadClaudeModelPresets(): Promise<void> {
+async function loadUiSettings(): Promise<void> {
   const response = await authFetch("/api/settings");
   if (!response.ok) return;
-  const settings = (await response.json()) as { claudeModelPresets?: unknown };
+  const settings = (await response.json()) as { claudeModelPresets?: unknown; keybindings?: unknown };
   claudeModelPresets = parseClaudeModelPresets(settings.claudeModelPresets);
+  keybindingOverrides = parseKeybindingOverrides(settings.keybindings);
+  resolvedKeybindings = resolveKeybindings(keybindingOverrides);
+  renderKeybindingsPopupState();
 }
 
 let wsReconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -5924,6 +5946,7 @@ function renderClaudeModelPresetOverlayState(): void {
     ? {
       presets: claudeModelPresets,
       selectedIndex: claudeModelPresetOverlayState.selectedIndex,
+      cycleShortcut: resolvedKeybindings.claudeModelPreset,
     }
     : null;
 
@@ -5964,14 +5987,6 @@ function submitSelectedClaudeModelPreset(): void {
   focusActiveTerm();
 }
 
-function isClaudeModelPresetShortcut(event: KeyboardEvent): boolean {
-  return event.ctrlKey &&
-    event.shiftKey &&
-    !event.altKey &&
-    !event.metaKey &&
-    event.code === "KeyM";
-}
-
 function openClaudeModelPresetOverlay(): boolean {
   if (!activePtyId || claudeModelPresets.length === 0) return false;
   const active = ptys.find((pty) => pty.id === activePtyId && pty.status === "running");
@@ -5982,12 +5997,55 @@ function openClaudeModelPresetOverlay(): boolean {
   return true;
 }
 
+function keybindingActionForEvent(event: KeyboardEvent): KeybindingActionId | null {
+  for (const { id } of KEYBINDING_ACTIONS) {
+    if (keybindingMatches(resolvedKeybindings[id], event)) return id;
+  }
+  return null;
+}
+
+function dispatchKeybindingAction(action: KeybindingActionId): boolean {
+  switch (action) {
+    case "toggleSidebar":
+      toggleSidebar();
+      return true;
+    case "nextPty":
+      switchPtyByOffset(1);
+      return true;
+    case "previousPty":
+      switchPtyByOffset(-1);
+      return true;
+    case "newShell":
+      newShell().catch(() => {});
+      return true;
+    case "closePty":
+      if (activePtyId) killPty(activePtyId);
+      return true;
+    case "nextReadyPty":
+      switchToNextReady();
+      return true;
+    case "claudeModelPreset":
+      return openClaudeModelPresetOverlay();
+  }
+}
+
 document.addEventListener(
   "keydown",
   (event: KeyboardEvent) => {
+    if (handleKeybindingCaptureEvent(event)) return;
+    if (!keysPopup.classList.contains("hidden")) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        closeKeysPopup();
+      } else if (event.key === "Tab") {
+        trapKeysPopupFocus(event);
+      }
+      return;
+    }
     if (claudeModelPresetOverlayState) {
       event.stopImmediatePropagation();
-      if (isClaudeModelPresetShortcut(event)) {
+      if (keybindingMatches(resolvedKeybindings.claudeModelPreset, event)) {
         event.preventDefault();
         cycleClaudeModelPresetOverlay();
       } else if (event.key === "Enter" && !event.ctrlKey && !event.metaKey) {
@@ -5999,49 +6057,10 @@ document.addEventListener(
       }
       return;
     }
-    if (!isClaudeModelPresetShortcut(event) || !openClaudeModelPresetOverlay()) return;
+    const action = keybindingActionForEvent(event);
+    if (!action || !dispatchKeybindingAction(action)) return;
     event.preventDefault();
     event.stopImmediatePropagation();
-  },
-  { capture: true },
-);
-
-document.addEventListener(
-  "keydown",
-  (ev: KeyboardEvent) => {
-    if (!ev.ctrlKey || !ev.shiftKey || ev.altKey || ev.metaKey) return;
-    switch (ev.code) {
-      case "Backslash":
-        ev.preventDefault();
-        ev.stopPropagation();
-        toggleSidebar();
-        return;
-      case "BracketRight":
-        ev.preventDefault();
-        ev.stopPropagation();
-        switchPtyByOffset(1);
-        return;
-      case "BracketLeft":
-        ev.preventDefault();
-        ev.stopPropagation();
-        switchPtyByOffset(-1);
-        return;
-      case "Backquote":
-        ev.preventDefault();
-        ev.stopPropagation();
-        newShell().catch(() => {});
-        return;
-      case "KeyQ":
-        ev.preventDefault();
-        ev.stopPropagation();
-        if (activePtyId) killPty(activePtyId);
-        return;
-      case "Space":
-        ev.preventDefault();
-        ev.stopPropagation();
-        switchToNextReady();
-        return;
-    }
   },
   { capture: true },
 );
@@ -6056,33 +6075,190 @@ document.body.appendChild(keysBackdrop);
 
 const keysPopup = document.createElement("div");
 keysPopup.className = "keys-popup hidden";
-keysPopup.innerHTML = `
-  <div class="keys-popup-title">Keybindings</div>
-  <table>
-    <tr><td><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>\`</kbd></td><td>New shell</td></tr>
-    <tr><td><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Q</kbd></td><td>Close PTY</td></tr>
-    <tr><td>Select text</td><td>Copy to clipboard</td></tr>
-    <tr><td><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>\\</kbd></td><td>Toggle sidebar</td></tr>
-    <tr><td><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>]</kbd></td><td>Next PTY</td></tr>
-    <tr><td><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>[</kbd></td><td>Previous PTY</td></tr>
-    <tr><td><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Space</kbd></td><td>Next ready PTY</td></tr>
-    <tr><td><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>M</kbd></td><td>Switch Claude model preset</td></tr>
-  </table>`;
 document.body.appendChild(keysPopup);
 
+let keybindingCaptureAction: KeybindingActionId | null = null;
+let keybindingsSaving = false;
+let keybindingsError: string | null = null;
+
+function renderKeybindingsPopupState(): void {
+  const model: KeybindingsPopupViewModel = {
+    entries: KEYBINDING_ACTIONS.map(({ id, label }) => ({
+      id,
+      label,
+      binding: resolvedKeybindings[id],
+      custom: Boolean(keybindingOverrides[id]),
+    })),
+    captureAction: keybindingCaptureAction,
+    saving: keybindingsSaving,
+    error: keybindingsError,
+  };
+  renderKeybindingsPopup(keysPopup, model, {
+    onClose: () => closeKeysPopup(),
+    onCapture: (action) => {
+      if (keybindingsSaving) return;
+      keybindingCaptureAction = action;
+      keybindingsError = null;
+      renderKeybindingsPopupState();
+    },
+  });
+}
+
+function setKeysPopupOpen(open: boolean): void {
+  keysPopup.classList.toggle("hidden", !open);
+  keysBackdrop.classList.toggle("hidden", !open);
+  btnKeys.setAttribute("aria-expanded", String(open));
+}
+
+function closeKeysPopup(): void {
+  keybindingCaptureAction = null;
+  keybindingsError = null;
+  setKeysPopupOpen(false);
+  renderKeybindingsPopupState();
+  btnKeys.focus();
+}
+
 function toggleKeysPopup(): void {
-  const show = keysPopup.classList.contains("hidden");
-  keysPopup.classList.toggle("hidden", !show);
-  keysBackdrop.classList.toggle("hidden", !show);
+  if (!keysPopup.classList.contains("hidden")) {
+    closeKeysPopup();
+    return;
+  }
+  keybindingCaptureAction = null;
+  keybindingsError = null;
+  renderKeybindingsPopupState();
+  setKeysPopupOpen(true);
+  requestAnimationFrame(() => {
+    keysPopup.querySelector<HTMLButtonElement>(".keybinding-button")?.focus();
+  });
+}
+
+function trapKeysPopupFocus(event: KeyboardEvent): void {
+  const focusable = [...keysPopup.querySelectorAll<HTMLButtonElement>("button:not(:disabled)")];
+  if (focusable.length === 0) return;
+  const first = focusable[0]!;
+  const last = focusable[focusable.length - 1]!;
+  if (!keysPopup.contains(document.activeElement)) {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    first.focus();
+  } else if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    last.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    first.focus();
+  }
+}
+
+function bindingsEqual(left: Keybinding, right: Keybinding): boolean {
+  return left.code === right.code &&
+    left.ctrl === right.ctrl &&
+    left.shift === right.shift &&
+    left.alt === right.alt &&
+    left.meta === right.meta;
+}
+
+function conflictingKeybindingAction(action: KeybindingActionId, binding: Keybinding): KeybindingActionId | null {
+  for (const { id } of KEYBINDING_ACTIONS) {
+    if (id !== action && bindingsEqual(resolvedKeybindings[id], binding)) return id;
+  }
+  return null;
+}
+
+function keybindingActionLabel(action: KeybindingActionId): string {
+  return KEYBINDING_ACTIONS.find((candidate) => candidate.id === action)?.label ?? action;
+}
+
+async function saveKeybindingOverrides(
+  nextOverrides: KeybindingOverrides,
+  action: KeybindingActionId,
+): Promise<void> {
+  const previousOverrides = keybindingOverrides;
+  keybindingOverrides = nextOverrides;
+  resolvedKeybindings = resolveKeybindings(keybindingOverrides);
+  keybindingCaptureAction = null;
+  keybindingsError = null;
+  keybindingsSaving = true;
+  renderKeybindingsPopupState();
+  try {
+    const response = await authFetch("/api/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ keybindings: nextOverrides }),
+    });
+    if (!response.ok) throw new Error(await readApiError(response));
+    const settings = (await response.json()) as { keybindings?: unknown };
+    keybindingOverrides = parseKeybindingOverrides(settings.keybindings);
+    resolvedKeybindings = resolveKeybindings(keybindingOverrides);
+  } catch (err) {
+    keybindingOverrides = previousOverrides;
+    resolvedKeybindings = resolveKeybindings(keybindingOverrides);
+    keybindingCaptureAction = action;
+    keybindingsError = `Failed to save shortcut: ${errorMessage(err)}`;
+  } finally {
+    keybindingsSaving = false;
+    renderKeybindingsPopupState();
+  }
+}
+
+function handleKeybindingCaptureEvent(event: KeyboardEvent): boolean {
+  const action = keybindingCaptureAction;
+  if (!action) return false;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+
+  if (event.key === "Escape") {
+    keybindingCaptureAction = null;
+    keybindingsError = null;
+    renderKeybindingsPopupState();
+    return true;
+  }
+
+  let binding: Keybinding | null;
+  const nextOverrides = { ...keybindingOverrides };
+  if (
+    event.key === "Backspace" &&
+    !event.ctrlKey &&
+    !event.shiftKey &&
+    !event.altKey &&
+    !event.metaKey
+  ) {
+    binding = DEFAULT_KEYBINDINGS[action];
+    delete nextOverrides[action];
+  } else {
+    binding = keybindingFromEvent(event);
+    if (!binding) {
+      keybindingsError = "Shortcut must include Ctrl, Alt, or Meta.";
+      renderKeybindingsPopupState();
+      return true;
+    }
+    nextOverrides[action] = binding;
+  }
+
+  const conflict = conflictingKeybindingAction(action, binding);
+  if (conflict) {
+    keybindingsError = `${formatKeybinding(binding).join("+")} is already used by ${keybindingActionLabel(conflict)}.`;
+    renderKeybindingsPopupState();
+    return true;
+  }
+
+  try {
+    validateKeybindingOverrides(nextOverrides);
+  } catch (err) {
+    keybindingsError = errorMessage(err);
+    renderKeybindingsPopupState();
+    return true;
+  }
+  void saveKeybindingOverrides(nextOverrides, action);
+  return true;
 }
 
 btnKeys.addEventListener("click", toggleKeysPopup);
 keysBackdrop.addEventListener("click", toggleKeysPopup);
-document.addEventListener("keydown", (ev) => {
-  if (ev.key === "Escape" && !keysPopup.classList.contains("hidden")) {
-    toggleKeysPopup();
-  }
-});
+btnKeys.setAttribute("aria-expanded", "false");
+renderKeybindingsPopupState();
 
 // --- Settings modal ---
 
@@ -6152,6 +6328,7 @@ function renderSettingsModalState(): void {
       tmuxSessionKey: tmuxOptions.some((opt) => opt.key === selectedTmuxSessionKey) ? selectedTmuxSessionKey : "",
       tmuxSessions: tmuxOptions,
       claudeModelPresets: state.claudeModelPresets,
+      claudeModelShortcut: resolvedKeybindings.claudeModelPreset,
     }
     : null;
 
@@ -6247,8 +6424,10 @@ function renderSettingsModalState(): void {
       })
         .then(async (res) => {
           if (!res.ok) throw new Error(await readApiError(res));
-          const data = (await res.json()) as { claudeModelPresets?: unknown };
+          const data = (await res.json()) as { claudeModelPresets?: unknown; keybindings?: unknown };
           claudeModelPresets = parseClaudeModelPresets(data.claudeModelPresets);
+          keybindingOverrides = parseKeybindingOverrides(data.keybindings);
+          resolvedKeybindings = resolveKeybindings(keybindingOverrides);
           settingsModalState = null;
           renderSettingsModalState();
         })
@@ -6276,9 +6455,15 @@ function openSettingsModal(): void {
   void authFetch("/api/settings")
     .then(async (res) => {
       if (!res.ok || !settingsModalState || seq !== settingsModalSeq || settingsModalState.dirty) return;
-      const data = (await res.json()) as { worktreePathTemplate?: string; claudeModelPresets?: unknown };
+      const data = (await res.json()) as {
+        worktreePathTemplate?: string;
+        claudeModelPresets?: unknown;
+        keybindings?: unknown;
+      };
       settingsModalState.worktreePathTemplate = data.worktreePathTemplate ?? "";
       claudeModelPresets = parseClaudeModelPresets(data.claudeModelPresets);
+      keybindingOverrides = parseKeybindingOverrides(data.keybindings);
+      resolvedKeybindings = resolveKeybindings(keybindingOverrides);
       settingsModalState.claudeModelPresets = claudeModelPresets.map((preset) => ({ ...preset }));
       renderSettingsModalState();
     })
@@ -6293,7 +6478,7 @@ void (async () => {
   try {
     await ensureAuthToken();
     authed = true;
-    await Promise.all([loadPtyInputMeta(), refreshWorktreeCache(), loadClaudeModelPresets()]);
+    await Promise.all([loadPtyInputMeta(), refreshWorktreeCache(), loadUiSettings()]);
     connectWs();
     btnNew.disabled = false;
     await refreshTmuxSessions();

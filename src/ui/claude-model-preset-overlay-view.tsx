@@ -1,10 +1,12 @@
 import { render } from "preact";
 
 import type { ClaudeModelPreset } from "../shared/claude-model-presets.js";
+import { formatKeybinding, type Keybinding } from "../shared/keybindings.js";
 
 export type ClaudeModelPresetOverlayViewModel = {
   presets: ClaudeModelPreset[];
   selectedIndex: number;
+  cycleShortcut: Keybinding;
 };
 
 export type ClaudeModelPresetOverlayHandlers = {
@@ -39,7 +41,9 @@ export function renderClaudeModelPresetOverlay(
         }}
       >
         <h3 id="claude-preset-title">Switch Claude model</h3>
-        <p className="claude-preset-description">Press Ctrl+Shift+M again to cycle.</p>
+        <p className="claude-preset-description">
+          Press {formatKeybinding(model.cycleShortcut).join("+")} again to cycle.
+        </p>
         <ul className="claude-preset-list" role="listbox" aria-label="Claude model presets">
           {model.presets.map((preset, index) => {
             const selected = index === model.selectedIndex;
