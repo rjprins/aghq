@@ -35,7 +35,7 @@ Keep provider-specific behavior in small pure functions and keep terminal writes
 
 ```ts
 const commands = claudePresetCommands(preset);
-for (const command of commands) sendTerminalInput(`${command}\r`);
+for (const command of commands) sendTerminalInput(command);
 ```
 
 Use explicit types, immutable array updates, existing CSS tokens, and native form controls.
