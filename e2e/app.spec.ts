@@ -1724,6 +1724,152 @@ test("settings modal opens, saves worktree template, and persists", async ({ pag
   });
 });
 
+test("settings modal creates, reorders, and persists Claude model presets", async ({ page }) => {
+  await page.goto("/?nosup=1");
+  const token = await readSessionToken(page);
+
+  try {
+    await page.getByRole("button", { name: "Settings" }).click();
+    const presetsGroup = page.getByRole("group", { name: "Claude model presets" });
+    await expect(presetsGroup).toBeVisible();
+    await expect(presetsGroup).toContainText("Ctrl+Shift+M");
+    await expect(page.getByText("No Claude presets configured.")).toBeVisible();
+
+    await page.getByRole("button", { name: "Add Claude preset" }).click();
+    await page.getByLabel("Preset 1 name").fill("Fast");
+    await page.getByLabel("Preset 1 model").fill("sonnet");
+    await page.getByLabel("Preset 1 effort").selectOption("low");
+
+    await page.getByRole("button", { name: "Add Claude preset" }).click();
+    await page.getByLabel("Preset 2 name").fill("Deep review");
+    await page.getByLabel("Preset 2 model").fill("claude-opus-4-7");
+    await page.getByLabel("Preset 2 effort").selectOption("xhigh");
+    await page.getByRole("button", { name: "Move preset 2 up" }).click();
+
+    await page.getByRole("button", { name: "Save" }).click();
+    await expect(page.locator(".launch-modal")).toHaveCount(0);
+
+    const response = await page.request.get(`/api/settings?token=${encodeURIComponent(token)}`);
+    const settings = await response.json();
+    expect(settings.claudeModelPresets).toEqual([
+      expect.objectContaining({ name: "Deep review", model: "claude-opus-4-7", effort: "xhigh" }),
+      expect.objectContaining({ name: "Fast", model: "sonnet", effort: "low" }),
+    ]);
+
+    await page.getByRole("button", { name: "Settings" }).click();
+    await expect(page.getByLabel("Preset 1 name")).toHaveValue("Deep review");
+    await expect(page.getByLabel("Preset 2 name")).toHaveValue("Fast");
+  } finally {
+    await page.request.put(`/api/settings?token=${encodeURIComponent(token)}`, {
+      data: { claudeModelPresets: [] },
+    });
+  }
+});
+
+test("Ctrl-Shift-M cycles, cancels, and submits Claude model presets", async ({ page }) => {
+  const hasTmux = await commandAvailable("tmux", ["-V"]);
+  test.skip(!hasTmux, "requires tmux");
+  const logRoot = process.env.E2E_AGENT_LOG_ROOT;
+  test.skip(!logRoot, "requires isolated agent log root");
+
+  const suffix = `${Date.now().toString(36)}-${Math.floor(Math.random() * 1_000_000).toString(36)}`;
+  const binDir = `/tmp/agmux-e2e-claude-presets-${suffix}`;
+  const sessionId = `e2e-presets-${suffix}`;
+  const logDir = path.join(logRoot!, "claude", "projects", "e2e-presets");
+  const logFile = path.join(logDir, `${sessionId}.jsonl`);
+  let ptyId: string | null = null;
+
+  fs.mkdirSync(binDir, { recursive: true });
+  await execFileAsync("ln", ["-sf", "/bin/sleep", `${binDir}/claude`]);
+
+  await page.goto("/?nosup=1");
+  const token = await readSessionToken(page);
+  await page.request.put(`/api/settings?token=${encodeURIComponent(token)}`, {
+    data: {
+      claudeModelPresets: [
+        { id: "fast", name: "Fast", model: "sonnet", effort: "low" },
+        { id: "deep", name: "Deep review", model: "claude-opus-4-7", effort: "xhigh" },
+      ],
+    },
+  });
+
+  try {
+    await page.reload();
+    await newShellSession(page);
+    ptyId = await page.locator(".pty-item.active").getAttribute("data-pty-id");
+    expect(ptyId).toBeTruthy();
+
+    const ptysResponse = await page.request.get(`/api/ptys?token=${encodeURIComponent(token)}`);
+    const ptysJson = (await ptysResponse.json()) as { ptys?: Array<{ id: string; cwd?: string | null }> };
+    const cwd = ptysJson.ptys?.find((pty) => pty.id === ptyId)?.cwd;
+    expect(cwd).toBeTruthy();
+
+    await page.evaluate(
+      () => (window as any).__agmux?.sendInput?.('echo "❯ Test Claude preset switching"\r'),
+    );
+
+    fs.mkdirSync(logDir, { recursive: true });
+    fs.writeFileSync(
+      logFile,
+      JSON.stringify({
+        type: "user",
+        sessionId,
+        cwd,
+        timestamp: new Date().toISOString(),
+        message: { role: "user", content: "Test Claude preset switching" },
+      }) + "\n",
+      "utf8",
+    );
+
+    await page.evaluate((command) => (window as any).__agmux?.sendInput?.(`${command}\r`), `${binDir}/claude 300`);
+    await expect
+      .poll(async () => {
+        const response = await page.request.get(`/api/ptys?token=${encodeURIComponent(token)}`);
+        const json = (await response.json()) as { ptys?: Array<{ id?: string; agentProvider?: string | null }> };
+        return json.ptys?.find((pty) => pty.id === ptyId)?.agentProvider ?? null;
+      }, { timeout: 20_000 })
+      .toBe("claude");
+
+    // Keep the attached provider metadata, but replace the fake Claude sleep
+    // process with cat so submitted slash commands are visible in the terminal.
+    await page.evaluate(() => (window as any).__agmux?.sendInput?.("\u0003"));
+    await page.evaluate(() => (window as any).__agmux?.sendInput?.("cat\r"));
+
+    const terminal = page.locator(".term-pane:not(.hidden) .xterm");
+    await terminal.click();
+    const chooser = page.getByRole("dialog", { name: "Switch Claude model" });
+    await page.keyboard.press("Alt+KeyM");
+    await expect(chooser).toHaveCount(0);
+    await page.keyboard.press("Control+Shift+KeyM");
+    await expect(chooser).toBeVisible();
+    await expect(chooser.getByRole("option", { name: /Fast/ })).toHaveAttribute("aria-selected", "true");
+
+    await page.keyboard.press("Control+Shift+KeyM");
+    await expect(chooser.getByRole("option", { name: /Deep review/ })).toHaveAttribute("aria-selected", "true");
+    await page.keyboard.press("Control+Enter");
+    await expect(chooser).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(chooser).toHaveCount(0);
+
+    const dumpActive = () => page.evaluate(() => String((window as any).__agmux?.dumpActive?.() ?? ""));
+    expect(await dumpActive()).not.toContain("/model claude-opus-4-7");
+
+    await page.keyboard.press("Control+Shift+KeyM");
+    await page.keyboard.press("Control+Shift+KeyM");
+    await page.keyboard.press("Enter");
+    await expect(chooser).toHaveCount(0);
+    await expect.poll(dumpActive, { timeout: 10_000 }).toContain("/model claude-opus-4-7");
+    await expect.poll(dumpActive, { timeout: 10_000 }).toContain("/effort xhigh");
+  } finally {
+    if (ptyId) await killPty(page, token, ptyId).catch(() => {});
+    await page.request.put(`/api/settings?token=${encodeURIComponent(token)}`, {
+      data: { claudeModelPresets: [] },
+    }).catch(() => {});
+    fs.rmSync(binDir, { recursive: true, force: true });
+    fs.rmSync(logFile, { force: true });
+  }
+});
+
 test("settings modal can follow the system theme", async ({ page }) => {
   await page.emulateMedia({ colorScheme: "light" });
   await page.goto("/?nosup=1");

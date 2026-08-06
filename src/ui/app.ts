@@ -21,6 +21,14 @@ import type {
   TmuxSessionInfo,
 } from "../shared/protocol.js";
 import {
+  claudePresetCommands,
+  isClaudeHarness,
+  nextClaudePresetIndex,
+  parseClaudeModelPresets,
+  type ClaudeEffortLevel,
+  type ClaudeModelPreset,
+} from "../shared/claude-model-presets.js";
+import {
   renderPtyList,
   type InactiveGroup,
   type InactivePtyItem,
@@ -80,6 +88,10 @@ import {
   type SettingsModalViewModel,
 } from "./settings-modal-view";
 import {
+  renderClaudeModelPresetOverlay,
+  type ClaudeModelPresetOverlayViewModel,
+} from "./claude-model-preset-overlay-view";
+import {
   renderReactivateProjectModal,
   type ReactivateProjectModalViewModel,
 } from "./reactivate-project-modal-view";
@@ -127,6 +139,7 @@ document.body.appendChild(mobileRoot);
 
 let ptys: PtySummary[] = [];
 let agentSessions: AgentSessionSummary[] = [];
+let claudeModelPresets: ClaudeModelPreset[] = [];
 let activePtyId: string | null = null;
 let pendingActivePtyId: string | null = null;
 let inputHistoryExpanded = false;
@@ -1412,6 +1425,13 @@ async function authFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
     ...init,
     headers: authHeaders(init?.headers),
   });
+}
+
+async function loadClaudeModelPresets(): Promise<void> {
+  const response = await authFetch("/api/settings");
+  if (!response.ok) return;
+  const settings = (await response.json()) as { claudeModelPresets?: unknown };
+  claudeModelPresets = parseClaudeModelPresets(settings.claudeModelPresets);
 }
 
 let wsReconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -5889,6 +5909,103 @@ function switchToNextReady(): void {
   setActive(next.id);
 }
 
+const claudeModelPresetOverlayRoot = document.createElement("div");
+document.body.appendChild(claudeModelPresetOverlayRoot);
+
+type ClaudeModelPresetOverlayState = {
+  targetPtyId: string;
+  selectedIndex: number;
+};
+
+let claudeModelPresetOverlayState: ClaudeModelPresetOverlayState | null = null;
+
+function renderClaudeModelPresetOverlayState(): void {
+  const model: ClaudeModelPresetOverlayViewModel | null = claudeModelPresetOverlayState
+    ? {
+      presets: claudeModelPresets,
+      selectedIndex: claudeModelPresetOverlayState.selectedIndex,
+    }
+    : null;
+
+  renderClaudeModelPresetOverlay(claudeModelPresetOverlayRoot, model, {
+    onCancel: () => closeClaudeModelPresetOverlay(),
+  });
+}
+
+function closeClaudeModelPresetOverlay(): void {
+  claudeModelPresetOverlayState = null;
+  renderClaudeModelPresetOverlayState();
+  focusActiveTerm();
+}
+
+function cycleClaudeModelPresetOverlay(): void {
+  if (!claudeModelPresetOverlayState) return;
+  claudeModelPresetOverlayState.selectedIndex = nextClaudePresetIndex(
+    claudeModelPresetOverlayState.selectedIndex,
+    claudeModelPresets.length,
+  );
+  renderClaudeModelPresetOverlayState();
+}
+
+function submitSelectedClaudeModelPreset(): void {
+  const state = claudeModelPresetOverlayState;
+  if (!state) return;
+  const preset = claudeModelPresets[state.selectedIndex];
+  claudeModelPresetOverlayState = null;
+  renderClaudeModelPresetOverlayState();
+  if (!preset || !ptys.some((pty) => pty.id === state.targetPtyId && pty.status === "running")) {
+    focusActiveTerm();
+    return;
+  }
+  for (const input of claudePresetCommands(preset)) {
+    trackUserInput(state.targetPtyId, input);
+    sendWsMessage({ type: "input", ptyId: state.targetPtyId, data: input });
+  }
+  focusActiveTerm();
+}
+
+function isClaudeModelPresetShortcut(event: KeyboardEvent): boolean {
+  return event.ctrlKey &&
+    event.shiftKey &&
+    !event.altKey &&
+    !event.metaKey &&
+    event.code === "KeyM";
+}
+
+function openClaudeModelPresetOverlay(): boolean {
+  if (!activePtyId || claudeModelPresets.length === 0) return false;
+  const active = ptys.find((pty) => pty.id === activePtyId && pty.status === "running");
+  if (!active || !isClaudeHarness(active.agentProvider, active.activeProcess)) return false;
+  if (document.querySelector(".launch-modal-overlay") || !keysPopup.classList.contains("hidden")) return false;
+  claudeModelPresetOverlayState = { targetPtyId: active.id, selectedIndex: 0 };
+  renderClaudeModelPresetOverlayState();
+  return true;
+}
+
+document.addEventListener(
+  "keydown",
+  (event: KeyboardEvent) => {
+    if (claudeModelPresetOverlayState) {
+      event.stopImmediatePropagation();
+      if (isClaudeModelPresetShortcut(event)) {
+        event.preventDefault();
+        cycleClaudeModelPresetOverlay();
+      } else if (event.key === "Enter" && !event.ctrlKey && !event.metaKey) {
+        event.preventDefault();
+        submitSelectedClaudeModelPreset();
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        closeClaudeModelPresetOverlay();
+      }
+      return;
+    }
+    if (!isClaudeModelPresetShortcut(event) || !openClaudeModelPresetOverlay()) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  },
+  { capture: true },
+);
+
 document.addEventListener(
   "keydown",
   (ev: KeyboardEvent) => {
@@ -5949,6 +6066,7 @@ keysPopup.innerHTML = `
     <tr><td><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>]</kbd></td><td>Next PTY</td></tr>
     <tr><td><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>[</kbd></td><td>Previous PTY</td></tr>
     <tr><td><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Space</kbd></td><td>Next ready PTY</td></tr>
+    <tr><td><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>M</kbd></td><td>Switch Claude model preset</td></tr>
   </table>`;
 document.body.appendChild(keysPopup);
 
@@ -5975,12 +6093,22 @@ document.body.appendChild(settingsModalRoot);
 
 type SettingsModalState = {
   worktreePathTemplate: string;
+  claudeModelPresets: ClaudeModelPreset[];
   saving: boolean;
   dirty: boolean;
 };
 
 let settingsModalState: SettingsModalState | null = null;
 let settingsModalSeq = 0;
+
+function newClaudeModelPreset(index: number): ClaudeModelPreset {
+  return {
+    id: crypto.randomUUID(),
+    name: `Preset ${index + 1}`,
+    model: "sonnet",
+    effort: "auto",
+  };
+}
 
 function settingsPreviewPath(template: string): string {
   const t = template || DEFAULT_WORKTREE_TEMPLATE;
@@ -6023,6 +6151,7 @@ function renderSettingsModalState(): void {
       systemThemeDescription: systemThemeDescription(),
       tmuxSessionKey: tmuxOptions.some((opt) => opt.key === selectedTmuxSessionKey) ? selectedTmuxSessionKey : "",
       tmuxSessions: tmuxOptions,
+      claudeModelPresets: state.claudeModelPresets,
     }
     : null;
 
@@ -6065,18 +6194,61 @@ function renderSettingsModalState(): void {
         addEvent(`Failed to refresh tmux sessions: ${errorMessage(err)}`);
       });
     },
+    onAddClaudePreset: () => {
+      if (!settingsModalState) return;
+      settingsModalState.claudeModelPresets = [
+        ...settingsModalState.claudeModelPresets,
+        newClaudeModelPreset(settingsModalState.claudeModelPresets.length),
+      ];
+      settingsModalState.dirty = true;
+      renderSettingsModalState();
+    },
+    onClaudePresetChange: (id, field, value) => {
+      if (!settingsModalState) return;
+      settingsModalState.claudeModelPresets = settingsModalState.claudeModelPresets.map((preset) => {
+        if (preset.id !== id) return preset;
+        if (field === "effort") return { ...preset, effort: value as ClaudeEffortLevel };
+        return { ...preset, [field]: value };
+      });
+      settingsModalState.dirty = true;
+      renderSettingsModalState();
+    },
+    onMoveClaudePreset: (id, offset) => {
+      if (!settingsModalState) return;
+      const from = settingsModalState.claudeModelPresets.findIndex((preset) => preset.id === id);
+      const to = from + offset;
+      if (from < 0 || to < 0 || to >= settingsModalState.claudeModelPresets.length) return;
+      const presets = [...settingsModalState.claudeModelPresets];
+      const [preset] = presets.splice(from, 1);
+      if (!preset) return;
+      presets.splice(to, 0, preset);
+      settingsModalState.claudeModelPresets = presets;
+      settingsModalState.dirty = true;
+      renderSettingsModalState();
+    },
+    onRemoveClaudePreset: (id) => {
+      if (!settingsModalState) return;
+      settingsModalState.claudeModelPresets = settingsModalState.claudeModelPresets.filter(
+        (preset) => preset.id !== id,
+      );
+      settingsModalState.dirty = true;
+      renderSettingsModalState();
+    },
     onSave: () => {
       if (!settingsModalState || settingsModalState.saving) return;
       settingsModalState.saving = true;
       renderSettingsModalState();
       const template = settingsModalState.worktreePathTemplate.trim() || null;
+      const presets = settingsModalState.claudeModelPresets;
       void authFetch("/api/settings", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ worktreePathTemplate: template }),
+        body: JSON.stringify({ worktreePathTemplate: template, claudeModelPresets: presets }),
       })
         .then(async (res) => {
           if (!res.ok) throw new Error(await readApiError(res));
+          const data = (await res.json()) as { claudeModelPresets?: unknown };
+          claudeModelPresets = parseClaudeModelPresets(data.claudeModelPresets);
           settingsModalState = null;
           renderSettingsModalState();
         })
@@ -6094,6 +6266,7 @@ function openSettingsModal(): void {
   const seq = ++settingsModalSeq;
   settingsModalState = {
     worktreePathTemplate: "",
+    claudeModelPresets: claudeModelPresets.map((preset) => ({ ...preset })),
     saving: false,
     dirty: false,
   };
@@ -6103,8 +6276,10 @@ function openSettingsModal(): void {
   void authFetch("/api/settings")
     .then(async (res) => {
       if (!res.ok || !settingsModalState || seq !== settingsModalSeq || settingsModalState.dirty) return;
-      const data = (await res.json()) as { worktreePathTemplate?: string };
+      const data = (await res.json()) as { worktreePathTemplate?: string; claudeModelPresets?: unknown };
       settingsModalState.worktreePathTemplate = data.worktreePathTemplate ?? "";
+      claudeModelPresets = parseClaudeModelPresets(data.claudeModelPresets);
+      settingsModalState.claudeModelPresets = claudeModelPresets.map((preset) => ({ ...preset }));
       renderSettingsModalState();
     })
     .catch(() => {});
@@ -6118,7 +6293,7 @@ void (async () => {
   try {
     await ensureAuthToken();
     authed = true;
-    await Promise.all([loadPtyInputMeta(), refreshWorktreeCache()]);
+    await Promise.all([loadPtyInputMeta(), refreshWorktreeCache(), loadClaudeModelPresets()]);
     connectWs();
     btnNew.disabled = false;
     await refreshTmuxSessions();
