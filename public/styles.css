@@ -3515,9 +3515,23 @@ button:disabled {
   }
 
   .keys-popup {
+    padding: 14px 12px;
     border-color: rgba(31, 27, 22, 0.18);
     background: #fefaf1;
     color: #1f1b16;
+  }
+
+  .keys-popup td:first-child {
+    padding-right: 8px;
+  }
+
+  .keybinding-button {
+    min-width: 132px;
+    padding-inline: 5px;
+  }
+
+  .keys-popup kbd {
+    padding-inline: 3px;
   }
 
   .keys-popup-help,
