@@ -2134,6 +2134,171 @@ button:disabled {
   font-size: 11px;
 }
 
+.settings-modal {
+  width: min(680px, calc(100vw - 24px));
+  max-height: min(860px, calc(100vh - 24px));
+  overflow-y: auto;
+}
+
+.settings-preset-section {
+  min-width: 0;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.settings-preset-section legend {
+  padding: 0 5px;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.settings-preset-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.settings-preset-toolbar kbd,
+.claude-preset-hints kbd {
+  border: 1px solid var(--surface-border);
+  border-radius: 3px;
+  background: var(--surface-hover);
+  padding: 1px 4px;
+  color: var(--text);
+  font: inherit;
+  font-size: 11px;
+}
+
+.settings-preset-empty {
+  margin: 12px 0 2px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.settings-preset-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.settings-preset-row {
+  display: grid;
+  grid-template-columns: minmax(110px, 0.8fr) minmax(180px, 1.4fr) minmax(120px, 0.8fr) auto;
+  gap: 8px;
+  align-items: end;
+}
+
+.settings-preset-row > label {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.settings-preset-row .launch-modal-input,
+.settings-preset-row .launch-modal-select {
+  box-sizing: border-box;
+  min-width: 0;
+  width: 100%;
+}
+
+.settings-preset-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.settings-preset-actions button {
+  min-width: 30px;
+  padding: 6px;
+}
+
+.claude-preset-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--overlay) 82%, transparent);
+}
+
+.claude-preset-dialog {
+  width: min(440px, calc(100vw - 24px));
+  max-height: min(620px, calc(100vh - 24px));
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.42);
+  color: var(--text);
+  outline: none;
+}
+
+.claude-preset-dialog h3 {
+  margin: 0;
+  padding: 16px 18px 4px;
+  font-size: 16px;
+}
+
+.claude-preset-description {
+  margin: 0;
+  padding: 0 18px 12px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.claude-preset-list {
+  display: grid;
+  gap: 4px;
+  max-height: 440px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 6px 10px;
+  list-style: none;
+  border-block: 1px solid var(--line);
+}
+
+.claude-preset-option {
+  display: grid;
+  gap: 3px;
+  padding: 9px 10px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+}
+
+.claude-preset-option.selected {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, var(--panel));
+}
+
+.claude-preset-name {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.claude-preset-config {
+  overflow: hidden;
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.claude-preset-hints {
+  display: flex;
+  justify-content: flex-end;
+  gap: 14px;
+  padding: 10px 14px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
 .sidebar.collapsed .controls #btn-settings {
   display: none;
 }
@@ -2149,6 +2314,14 @@ button:disabled {
   .sidebar {
     border-right: none;
     border-bottom: 1px solid var(--line);
+  }
+
+  .settings-preset-row {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-preset-actions {
+    justify-content: flex-end;
   }
 }
 
@@ -3247,6 +3420,56 @@ button:disabled {
   .launch-modal-go {
     background: #1f1b16;
     color: #f8f5ee;
+  }
+
+  .settings-preset-section {
+    border-color: rgba(31, 27, 22, 0.18);
+  }
+
+  .settings-preset-section legend {
+    color: #1f1b16;
+  }
+
+  .settings-preset-toolbar .settings-help,
+  .settings-preset-row > label,
+  .settings-preset-empty,
+  .claude-preset-description,
+  .claude-preset-config,
+  .claude-preset-hints {
+    color: rgba(31, 27, 22, 0.6);
+  }
+
+  .settings-preset-toolbar kbd,
+  .claude-preset-hints kbd {
+    border-color: rgba(31, 27, 22, 0.2);
+    background: rgba(255, 255, 255, 0.8);
+    color: #1f1b16;
+  }
+
+  .settings-preset-actions button,
+  .settings-preset-toolbar button {
+    border-color: rgba(31, 27, 22, 0.2);
+    background: rgba(255, 255, 255, 0.8);
+    color: #1f1b16;
+  }
+
+  .claude-preset-overlay {
+    background: rgba(31, 27, 22, 0.25);
+  }
+
+  .claude-preset-dialog {
+    border-color: rgba(31, 27, 22, 0.18);
+    background: #fefaf1;
+    color: #1f1b16;
+  }
+
+  .claude-preset-list {
+    border-color: rgba(31, 27, 22, 0.18);
+  }
+
+  .claude-preset-option.selected {
+    border-color: #8a6d1a;
+    background: rgba(255, 204, 102, 0.24);
   }
 
   .reactivate-project-modal {

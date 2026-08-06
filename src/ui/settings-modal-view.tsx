@@ -1,4 +1,9 @@
 import { render } from "preact";
+import {
+  CLAUDE_EFFORT_LEVELS,
+  type ClaudeEffortLevel,
+  type ClaudeModelPreset,
+} from "../shared/claude-model-presets.js";
 
 export type ThemeOption = {
   key: string;
@@ -15,6 +20,7 @@ export type SettingsModalViewModel = {
   systemThemeDescription: string;
   tmuxSessionKey: string;
   tmuxSessions: Array<{ key: string; label: string }>;
+  claudeModelPresets: ClaudeModelPreset[];
 };
 
 export type SettingsModalHandlers = {
@@ -26,6 +32,24 @@ export type SettingsModalHandlers = {
   onUseSystemThemeChange: (enabled: boolean) => void;
   onTmuxSessionChange: (key: string) => void;
   onTmuxSessionFocus: () => void;
+  onAddClaudePreset: () => void;
+  onClaudePresetChange: (
+    id: string,
+    field: "name" | "model" | "effort",
+    value: string,
+  ) => void;
+  onMoveClaudePreset: (id: string, offset: -1 | 1) => void;
+  onRemoveClaudePreset: (id: string) => void;
+};
+
+const EFFORT_LABELS: Record<ClaudeEffortLevel, string> = {
+  auto: "Auto (model default)",
+  low: "Low",
+  medium: "Medium",
+  high: "High",
+  xhigh: "Extra high",
+  max: "Max",
+  ultracode: "Ultracode",
 };
 
 export function renderSettingsModal(
@@ -46,7 +70,7 @@ export function renderSettingsModal(
       }}
     >
       <div
-        className="launch-modal"
+        className="launch-modal settings-modal"
         tabIndex={-1}
         ref={(el) => {
           if (el && el !== document.activeElement && !el.contains(document.activeElement)) el.focus();
@@ -102,6 +126,112 @@ export function renderSettingsModal(
             ))}
           </select>
         </label>
+
+        <fieldset className="settings-preset-section">
+          <legend>Claude model presets</legend>
+          <div className="settings-preset-toolbar">
+            <span className="settings-help">Used by <kbd>Alt</kbd>+<kbd>M</kbd> in Claude terminals.</span>
+            <button
+              type="button"
+              onClick={() => handlers.onAddClaudePreset()}
+              disabled={model.saving}
+              aria-label="Add Claude preset"
+            >
+              Add preset
+            </button>
+          </div>
+
+          {model.claudeModelPresets.length === 0 ? (
+            <p className="settings-preset-empty">No Claude presets configured.</p>
+          ) : (
+            <div className="settings-preset-list">
+              {model.claudeModelPresets.map((preset, index) => (
+                <div className="settings-preset-row" key={preset.id}>
+                  <label>
+                    <span>Name</span>
+                    <input
+                      className="launch-modal-input"
+                      type="text"
+                      name={`claude-preset-${preset.id}-name`}
+                      value={preset.name}
+                      maxLength={80}
+                      aria-label={`Preset ${index + 1} name`}
+                      onInput={(event) => handlers.onClaudePresetChange(
+                        preset.id,
+                        "name",
+                        (event.target as HTMLInputElement).value,
+                      )}
+                    />
+                  </label>
+                  <label>
+                    <span>Model</span>
+                    <input
+                      className="launch-modal-input"
+                      type="text"
+                      name={`claude-preset-${preset.id}-model`}
+                      value={preset.model}
+                      maxLength={200}
+                      spellCheck={false}
+                      aria-label={`Preset ${index + 1} model`}
+                      onInput={(event) => handlers.onClaudePresetChange(
+                        preset.id,
+                        "model",
+                        (event.target as HTMLInputElement).value,
+                      )}
+                    />
+                  </label>
+                  <label>
+                    <span>Effort</span>
+                    <select
+                      className="launch-modal-select"
+                      name={`claude-preset-${preset.id}-effort`}
+                      value={preset.effort}
+                      aria-label={`Preset ${index + 1} effort`}
+                      onChange={(event) => handlers.onClaudePresetChange(
+                        preset.id,
+                        "effort",
+                        (event.target as HTMLSelectElement).value,
+                      )}
+                    >
+                      {CLAUDE_EFFORT_LEVELS.map((effort) => (
+                        <option key={effort} value={effort}>{EFFORT_LABELS[effort]}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <div className="settings-preset-actions">
+                    <button
+                      type="button"
+                      title="Move up"
+                      aria-label={`Move preset ${index + 1} up`}
+                      disabled={model.saving || index === 0}
+                      onClick={() => handlers.onMoveClaudePreset(preset.id, -1)}
+                    >
+                      ↑
+                    </button>
+                    <button
+                      type="button"
+                      title="Move down"
+                      aria-label={`Move preset ${index + 1} down`}
+                      disabled={model.saving || index === model.claudeModelPresets.length - 1}
+                      onClick={() => handlers.onMoveClaudePreset(preset.id, 1)}
+                    >
+                      ↓
+                    </button>
+                    <button
+                      type="button"
+                      title="Remove"
+                      aria-label={`Remove preset ${index + 1}`}
+                      disabled={model.saving}
+                      onClick={() => handlers.onRemoveClaudePreset(preset.id)}
+                    >
+                      ×
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </fieldset>
 
         <label className="launch-modal-label">
           Worktree path template
