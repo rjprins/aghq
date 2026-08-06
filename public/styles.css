@@ -309,7 +309,10 @@ button:disabled {
   border-radius: 8px;
   padding: 16px 20px;
   z-index: 1000;
-  min-width: 280px;
+  width: min(500px, calc(100vw - 24px));
+  max-height: calc(100vh - 24px);
+  max-height: calc(100dvh - 24px);
+  overflow-y: auto;
   box-shadow: 0 8px 32px var(--backdrop);
 }
 
@@ -317,9 +320,36 @@ button:disabled {
   display: none;
 }
 
-.keys-popup-title {
+.keys-popup-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   font-weight: 650;
   margin-bottom: 12px;
+}
+
+.keys-popup-title {
+  font-weight: 650;
+}
+
+.keys-popup-close {
+  border: 0;
+  padding: 2px 5px;
+  color: var(--muted);
+  font-size: 18px;
+  line-height: 1;
+}
+
+.keys-popup-help,
+.keys-popup-note {
+  margin: 0 0 10px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.keys-popup-note {
+  margin: 10px 0 0;
 }
 
 .keys-popup table {
@@ -332,7 +362,6 @@ button:disabled {
 }
 
 .keys-popup td:first-child {
-  color: var(--muted);
   padding-right: 16px;
   white-space: nowrap;
 }
@@ -344,6 +373,57 @@ button:disabled {
   padding: 1px 5px;
   font-family: inherit;
   font-size: 12px;
+}
+
+.keybinding-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 156px;
+  min-height: 30px;
+  padding: 4px 8px;
+  color: var(--text);
+  background: var(--surface);
+}
+
+.keybinding-button:hover,
+.keybinding-button:focus-visible,
+.keybinding-button.capturing {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.keybinding-button.capturing {
+  color: var(--accent);
+}
+
+.keybinding-separator {
+  margin: 0 3px;
+  color: var(--muted);
+}
+
+.keybinding-custom {
+  display: inline-block;
+  margin-left: 7px;
+  color: var(--accent);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.keybinding-informational {
+  color: var(--muted);
+}
+
+.keybindings-status {
+  min-height: 17px;
+  margin: 10px 0 0;
+  color: var(--accent);
+  font-size: 11px;
+}
+
+.keybindings-status.error {
+  color: var(--danger);
 }
 
 .keys-backdrop {
@@ -3432,6 +3512,33 @@ button:disabled {
   .launch-modal-go {
     background: #1f1b16;
     color: #f8f5ee;
+  }
+
+  .keys-popup {
+    border-color: rgba(31, 27, 22, 0.18);
+    background: #fefaf1;
+    color: #1f1b16;
+  }
+
+  .keys-popup-help,
+  .keys-popup-note,
+  .keybinding-informational,
+  .keybinding-separator,
+  .keys-popup-close {
+    color: rgba(31, 27, 22, 0.6);
+  }
+
+  .keybinding-button,
+  .keys-popup kbd {
+    border-color: rgba(31, 27, 22, 0.2);
+    background: rgba(255, 255, 255, 0.8);
+    color: #1f1b16;
+  }
+
+  .keybinding-button.capturing,
+  .keybinding-custom,
+  .keybindings-status {
+    color: #8a6d1a;
   }
 
   .settings-preset-section {
