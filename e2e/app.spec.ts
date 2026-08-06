@@ -1695,7 +1695,9 @@ test("settings modal creates, reorders, and persists Claude model presets", asyn
 
   try {
     await page.getByRole("button", { name: "Settings" }).click();
-    await expect(page.getByRole("group", { name: "Claude model presets" })).toBeVisible();
+    const presetsGroup = page.getByRole("group", { name: "Claude model presets" });
+    await expect(presetsGroup).toBeVisible();
+    await expect(presetsGroup).toContainText("Ctrl+Shift+M");
     await expect(page.getByText("No Claude presets configured.")).toBeVisible();
 
     await page.getByRole("button", { name: "Add Claude preset" }).click();
@@ -1729,7 +1731,7 @@ test("settings modal creates, reorders, and persists Claude model presets", asyn
   }
 });
 
-test("Alt-M cycles, cancels, and submits Claude model presets", async ({ page }) => {
+test("Ctrl-Shift-M cycles, cancels, and submits Claude model presets", async ({ page }) => {
   const hasTmux = await commandAvailable("tmux", ["-V"]);
   test.skip(!hasTmux, "requires tmux");
   const logRoot = process.env.E2E_AGENT_LOG_ROOT;
@@ -1800,12 +1802,14 @@ test("Alt-M cycles, cancels, and submits Claude model presets", async ({ page })
 
     const terminal = page.locator(".term-pane:not(.hidden) .xterm");
     await terminal.click();
-    await page.keyboard.press("Alt+KeyM");
     const chooser = page.getByRole("dialog", { name: "Switch Claude model" });
+    await page.keyboard.press("Alt+KeyM");
+    await expect(chooser).toHaveCount(0);
+    await page.keyboard.press("Control+Shift+KeyM");
     await expect(chooser).toBeVisible();
     await expect(chooser.getByRole("option", { name: /Fast/ })).toHaveAttribute("aria-selected", "true");
 
-    await page.keyboard.press("Alt+KeyM");
+    await page.keyboard.press("Control+Shift+KeyM");
     await expect(chooser.getByRole("option", { name: /Deep review/ })).toHaveAttribute("aria-selected", "true");
     await page.keyboard.press("Control+Enter");
     await expect(chooser).toBeVisible();
@@ -1815,8 +1819,8 @@ test("Alt-M cycles, cancels, and submits Claude model presets", async ({ page })
     const dumpActive = () => page.evaluate(() => String((window as any).__agmux?.dumpActive?.() ?? ""));
     expect(await dumpActive()).not.toContain("/model claude-opus-4-7");
 
-    await page.keyboard.press("Alt+KeyM");
-    await page.keyboard.press("Alt+KeyM");
+    await page.keyboard.press("Control+Shift+KeyM");
+    await page.keyboard.press("Control+Shift+KeyM");
     await page.keyboard.press("Enter");
     await expect(chooser).toHaveCount(0);
     await expect.poll(dumpActive, { timeout: 10_000 }).toContain("/model claude-opus-4-7");

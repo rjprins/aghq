@@ -130,7 +130,9 @@ export function renderSettingsModal(
         <fieldset className="settings-preset-section">
           <legend>Claude model presets</legend>
           <div className="settings-preset-toolbar">
-            <span className="settings-help">Used by <kbd>Alt</kbd>+<kbd>M</kbd> in Claude terminals.</span>
+            <span className="settings-help">
+              Used by <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>M</kbd> in Claude terminals.
+            </span>
             <button
               type="button"
               onClick={() => handlers.onAddClaudePreset()}

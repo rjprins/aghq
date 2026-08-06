@@ -5965,10 +5965,10 @@ function submitSelectedClaudeModelPreset(): void {
 }
 
 function isClaudeModelPresetShortcut(event: KeyboardEvent): boolean {
-  return event.altKey &&
-    !event.ctrlKey &&
+  return event.ctrlKey &&
+    event.shiftKey &&
+    !event.altKey &&
     !event.metaKey &&
-    !event.shiftKey &&
     event.code === "KeyM";
 }
 
@@ -6066,7 +6066,7 @@ keysPopup.innerHTML = `
     <tr><td><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>]</kbd></td><td>Next PTY</td></tr>
     <tr><td><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>[</kbd></td><td>Previous PTY</td></tr>
     <tr><td><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Space</kbd></td><td>Next ready PTY</td></tr>
-    <tr><td><kbd>Alt</kbd>+<kbd>M</kbd></td><td>Switch Claude model preset</td></tr>
+    <tr><td><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>M</kbd></td><td>Switch Claude model preset</td></tr>
   </table>`;
 document.body.appendChild(keysPopup);
 

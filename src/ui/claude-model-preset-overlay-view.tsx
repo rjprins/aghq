@@ -39,7 +39,7 @@ export function renderClaudeModelPresetOverlay(
         }}
       >
         <h3 id="claude-preset-title">Switch Claude model</h3>
-        <p className="claude-preset-description">Press Alt+M again to cycle.</p>
+        <p className="claude-preset-description">Press Ctrl+Shift+M again to cycle.</p>
         <ul className="claude-preset-list" role="listbox" aria-label="Claude model presets">
           {model.presets.map((preset, index) => {
             const selected = index === model.selectedIndex;

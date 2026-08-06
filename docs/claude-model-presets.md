@@ -44,7 +44,7 @@ Use explicit types, immutable array updates, existing CSS tokens, and native for
 
 - Unit-test accepted/rejected settings values and exact Claude terminal commands.
 - Route-test settings normalization so malformed persisted data cannot reach the client.
-- Browser-test settings CRUD plus `Alt-M`, repeated cycling, `Enter`, and `Escape`.
+- Browser-test settings CRUD plus `Ctrl-Shift-M`, repeated cycling, `Enter`, and `Escape`.
 - Build and run the full unit suite before handoff.
 
 ## Boundaries
@@ -58,8 +58,8 @@ Use explicit types, immutable array updates, existing CSS tokens, and native for
 ## Success criteria
 
 - Settings can add, edit, reorder, and remove named Claude presets and persist them through `/api/settings`.
-- `Alt-M` opens a modal chooser for an active Claude session and highlights one preset.
-- Repeated `Alt-M` cycles the highlight with wraparound.
+- `Ctrl-Shift-M` opens a modal chooser for an active Claude session and highlights one preset.
+- Repeated `Ctrl-Shift-M` cycles the highlight with wraparound.
 - `Enter` sends `/model <model>\r` followed by `/effort <level>\r` and closes the chooser.
 - `Escape` closes the chooser without terminal input.
 - Missing presets or a non-Claude active terminal produce no terminal input and no broken overlay.
