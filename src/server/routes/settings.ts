@@ -1,5 +1,9 @@
 import type { FastifyInstance } from "fastify";
 import type { SqliteStore } from "../../persist/sqlite.js";
+import {
+  parseClaudeModelPresets,
+  validateClaudeModelPresets,
+} from "../../shared/claude-model-presets.js";
 import { parseJsonBody } from "../auth.js";
 
 type SettingsRoutesDeps = {
@@ -32,11 +36,24 @@ export function registerSettingsRoutes(deps: SettingsRoutesDeps): void {
   });
 
   fastify.get("/api/settings", async () => {
-    return store.getPreference("settings") ?? {};
+    const stored = store.getPreference<Record<string, unknown>>("settings") ?? {};
+    if (!("claudeModelPresets" in stored)) return stored;
+    return {
+      ...stored,
+      claudeModelPresets: parseClaudeModelPresets(stored.claudeModelPresets),
+    };
   });
 
-  fastify.put("/api/settings", async (req) => {
-    const body = parseJsonBody(req.body);
+  fastify.put("/api/settings", async (req, reply) => {
+    const body = { ...parseJsonBody(req.body) };
+    if ("claudeModelPresets" in body) {
+      try {
+        body.claudeModelPresets = validateClaudeModelPresets(body.claudeModelPresets);
+      } catch (err) {
+        reply.code(400);
+        return { error: err instanceof Error ? err.message : String(err) };
+      }
+    }
     const prev = store.getPreference<Record<string, unknown>>("settings") ?? {};
     const merged = { ...prev, ...body };
     for (const [k, v] of Object.entries(merged)) {
