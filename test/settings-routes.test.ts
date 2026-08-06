@@ -80,4 +80,49 @@ describe("settings routes", () => {
     expect(readSettings()).toEqual(initial);
     await fastify.close();
   });
+
+  it("validates and persists keybinding overrides", async () => {
+    const { fastify, readSettings } = setup({ worktreePathTemplate: "../custom" });
+
+    const response = await fastify.inject({
+      method: "PUT",
+      url: "/api/settings",
+      payload: {
+        keybindings: {
+          claudeModelPreset: { code: "KeyM", ctrl: false, shift: true, alt: true, meta: false },
+        },
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(readSettings()).toEqual({
+      worktreePathTemplate: "../custom",
+      keybindings: {
+        claudeModelPreset: { code: "KeyM", ctrl: false, shift: true, alt: true, meta: false },
+      },
+    });
+    await fastify.close();
+  });
+
+  it("rejects unsafe keybinding overrides without changing settings", async () => {
+    const initial = { worktreePathTemplate: "../custom" };
+    const { fastify, readSettings } = setup(initial);
+
+    const response = await fastify.inject({
+      method: "PUT",
+      url: "/api/settings",
+      payload: {
+        keybindings: {
+          claudeModelPreset: { code: "KeyM", ctrl: false, shift: true, alt: false, meta: false },
+        },
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({
+      error: "keybinding claudeModelPreset: shortcut must include Ctrl, Alt, or Meta",
+    });
+    expect(readSettings()).toEqual(initial);
+    await fastify.close();
+  });
 });

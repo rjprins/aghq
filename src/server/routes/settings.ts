@@ -4,6 +4,10 @@ import {
   parseClaudeModelPresets,
   validateClaudeModelPresets,
 } from "../../shared/claude-model-presets.js";
+import {
+  parseKeybindingOverrides,
+  validateKeybindingOverrides,
+} from "../../shared/keybindings.js";
 import { parseJsonBody } from "../auth.js";
 
 type SettingsRoutesDeps = {
@@ -37,11 +41,14 @@ export function registerSettingsRoutes(deps: SettingsRoutesDeps): void {
 
   fastify.get("/api/settings", async () => {
     const stored = store.getPreference<Record<string, unknown>>("settings") ?? {};
-    if (!("claudeModelPresets" in stored)) return stored;
-    return {
-      ...stored,
-      claudeModelPresets: parseClaudeModelPresets(stored.claudeModelPresets),
-    };
+    const settings = { ...stored };
+    if ("claudeModelPresets" in settings) {
+      settings.claudeModelPresets = parseClaudeModelPresets(settings.claudeModelPresets);
+    }
+    if ("keybindings" in settings) {
+      settings.keybindings = parseKeybindingOverrides(settings.keybindings);
+    }
+    return settings;
   });
 
   fastify.put("/api/settings", async (req, reply) => {
@@ -49,6 +56,14 @@ export function registerSettingsRoutes(deps: SettingsRoutesDeps): void {
     if ("claudeModelPresets" in body) {
       try {
         body.claudeModelPresets = validateClaudeModelPresets(body.claudeModelPresets);
+      } catch (err) {
+        reply.code(400);
+        return { error: err instanceof Error ? err.message : String(err) };
+      }
+    }
+    if ("keybindings" in body) {
+      try {
+        body.keybindings = validateKeybindingOverrides(body.keybindings);
       } catch (err) {
         reply.code(400);
         return { error: err instanceof Error ? err.message : String(err) };
