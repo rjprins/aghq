@@ -208,6 +208,26 @@
         }
       }
     },
+    "/api/complete-path": {
+      "get": {
+        "summary": "List directory completions for a partial path prefix",
+        "parameters": [
+          {
+            "name": "prefix",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
     "/api/input-history": {
       "get": {
         "summary": "Load input history",

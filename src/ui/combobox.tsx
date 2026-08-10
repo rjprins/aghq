@@ -22,20 +22,13 @@ const MENU_MAX_HEIGHT = 240;
 const VIEWPORT_GUTTER = 12;
 
 /**
- * Type-to-filter picker over `options` (pass them pre-sorted; pinned entries first).
- * Self-contained UI state — the parent only owns the selected `value`.
+ * Shared dropdown plumbing: fixed-position menu layout that dodges the
+ * viewport edges, plus keep-highlight-visible scrolling.
  */
-export function Combobox({ options, value, onSelect, placeholder, ariaLabel }: ComboboxProps) {
-  const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState("");
-  const [highlight, setHighlight] = useState(0);
+function useComboMenu(open: boolean, itemCount: number, highlight: number) {
   const [menuLayout, setMenuLayout] = useState<MenuLayout | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
-
-  const q = query.trim().toLowerCase();
-  const filtered = q ? options.filter((o) => o.label.toLowerCase().includes(q)) : options;
-  const selectedLabel = options.find((o) => o.value === value)?.label ?? value;
 
   // Keep the highlighted row visible while arrowing through a long list.
   useEffect(() => {
@@ -88,7 +81,7 @@ export function Combobox({ options, value, onSelect, placeholder, ariaLabel }: C
   useLayoutEffect(() => {
     if (!open) return;
     updateMenuLayout();
-  }, [open, filtered.length]);
+  }, [open, itemCount]);
 
   useEffect(() => {
     if (!open) return;
@@ -103,19 +96,48 @@ export function Combobox({ options, value, onSelect, placeholder, ariaLabel }: C
       window.visualViewport?.removeEventListener("resize", update);
       window.visualViewport?.removeEventListener("scroll", update);
     };
-  }, [open, filtered.length]);
+  }, [open, itemCount]);
+
+  return { inputRef, listRef, menuLayout, resetLayout: () => setMenuLayout(null) };
+}
+
+function menuStyle(menuLayout: MenuLayout | null) {
+  return menuLayout
+    ? {
+      left: `${menuLayout.left}px`,
+      top: `${menuLayout.top}px`,
+      width: `${menuLayout.width}px`,
+      maxHeight: `${menuLayout.maxHeight}px`,
+    }
+    : undefined;
+}
+
+/**
+ * Type-to-filter picker over `options` (pass them pre-sorted; pinned entries first).
+ * Self-contained UI state — the parent only owns the selected `value`.
+ */
+export function Combobox({ options, value, onSelect, placeholder, ariaLabel }: ComboboxProps) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [highlight, setHighlight] = useState(0);
+
+  const q = query.trim().toLowerCase();
+  const filtered = q ? options.filter((o) => o.label.toLowerCase().includes(q)) : options;
+  const selectedLabel = options.find((o) => o.value === value)?.label ?? value;
+
+  const { inputRef, listRef, menuLayout, resetLayout } = useComboMenu(open, filtered.length, highlight);
 
   const openMenu = () => {
     const idx = options.findIndex((o) => o.value === value);
     setQuery("");
     setHighlight(idx >= 0 ? idx : 0);
-    setMenuLayout(null);
+    resetLayout();
     setOpen(true);
   };
   const close = () => {
     setOpen(false);
     setQuery("");
-    setMenuLayout(null);
+    resetLayout();
   };
   const choose = (val: string) => {
     onSelect(val);
@@ -174,14 +196,7 @@ export function Combobox({ options, value, onSelect, placeholder, ariaLabel }: C
             className={`combobox-menu${menuLayout ? "" : " measuring"}`}
             ref={listRef}
             role="listbox"
-            style={menuLayout
-              ? {
-                left: `${menuLayout.left}px`,
-                top: `${menuLayout.top}px`,
-                width: `${menuLayout.width}px`,
-                maxHeight: `${menuLayout.maxHeight}px`,
-              }
-              : undefined}
+            style={menuStyle(menuLayout)}
           >
             {filtered.length === 0
               ? <li className="combobox-empty">No matches</li>
@@ -197,6 +212,199 @@ export function Combobox({ options, value, onSelect, placeholder, ariaLabel }: C
                   onClick={() => choose(o.value)}
                 >
                   {o.label}
+                </li>
+              ))}
+          </ul>
+        )
+        : null}
+    </div>
+  );
+}
+
+export type PathComboboxProps = {
+  /** Known choices (pre-sorted), e.g. active projects. */
+  options: ComboOption[];
+  /** Committed path — also what the closed input displays. */
+  value: string;
+  /** `source` is "option" for a known choice, "path" for typed/completed paths. */
+  onCommit: (path: string, source: "option" | "path") => void;
+  fetchCompletions: (prefix: string) => Promise<string[]>;
+  placeholder?: string;
+  ariaLabel?: string;
+};
+
+type PathItem = { value: string; label: string; kind: "option" | "path" };
+
+function looksLikePath(text: string): boolean {
+  return text.startsWith("/") || text.startsWith("~") || text.startsWith(".") || text.includes("/");
+}
+
+/**
+ * Combobox that also accepts free text: the typed text IS the value.
+ * Filters `options` while typing and mixes in server-side directory
+ * completions for path-like input. Tab drills into the highlighted
+ * directory shell-style; Enter/blur commit the typed text.
+ */
+export function PathCombobox({ options, value, onCommit, fetchCompletions, placeholder, ariaLabel }: PathComboboxProps) {
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState("");
+  const [edited, setEdited] = useState(false);
+  // Arrow-key navigation opts into "Enter picks the highlight"; plain typing
+  // keeps Enter committing the text as-is.
+  const [navigated, setNavigated] = useState(false);
+  const [highlight, setHighlight] = useState(0);
+  const [completions, setCompletions] = useState<string[]>([]);
+  const fetchSeq = useRef(0);
+  const fetchTimer = useRef<ReturnType<typeof setTimeout>>();
+
+  useEffect(() => () => clearTimeout(fetchTimer.current), []);
+
+  const q = text.trim();
+  const qLower = q.toLowerCase();
+  const projectItems: PathItem[] = (edited && q
+    ? options.filter((o) => o.label.toLowerCase().includes(qLower) || o.value.toLowerCase().includes(qLower))
+    : options
+  ).map((o) => ({ value: o.value, label: o.label, kind: "option" as const }));
+  const knownPaths = new Set(projectItems.map((item) => item.value));
+  const pathItems: PathItem[] = edited
+    ? completions.filter((c) => !knownPaths.has(c)).map((c) => ({ value: c, label: c, kind: "path" as const }))
+    : [];
+  const items = [...projectItems, ...pathItems];
+
+  const { inputRef, listRef, menuLayout, resetLayout } = useComboMenu(open, items.length, highlight);
+
+  const scheduleFetch = (prefix: string, delay: number) => {
+    clearTimeout(fetchTimer.current);
+    if (!looksLikePath(prefix)) {
+      setCompletions([]);
+      return;
+    }
+    fetchTimer.current = setTimeout(() => {
+      const seq = ++fetchSeq.current;
+      fetchCompletions(prefix)
+        .then((list) => { if (seq === fetchSeq.current) setCompletions(list); })
+        .catch(() => {});
+    }, delay);
+  };
+
+  const openMenu = () => {
+    const idx = options.findIndex((o) => o.value === value);
+    setText(value);
+    setEdited(false);
+    setNavigated(false);
+    setHighlight(idx >= 0 ? idx : 0);
+    setCompletions([]);
+    resetLayout();
+    setOpen(true);
+  };
+  const closeMenu = () => {
+    clearTimeout(fetchTimer.current);
+    fetchSeq.current++;
+    setOpen(false);
+    setEdited(false);
+    resetLayout();
+  };
+  const commit = (val: string, source: "option" | "path") => {
+    closeMenu();
+    if (val !== value) onCommit(val, source);
+  };
+
+  const onKeyDown = (ev: KeyboardEvent) => {
+    if (ev.key === "ArrowDown") {
+      ev.preventDefault();
+      if (!open) return openMenu();
+      setNavigated(true);
+      setHighlight((h) => Math.min(h + 1, items.length - 1));
+    } else if (ev.key === "ArrowUp") {
+      ev.preventDefault();
+      if (!open) return openMenu();
+      setNavigated(true);
+      setHighlight((h) => Math.max(h - 1, 0));
+    } else if (ev.key === "Tab" && open) {
+      const item = items[highlight];
+      if (!item) return;
+      // Shell-style: fill in the highlighted directory and keep completing.
+      ev.preventDefault();
+      const next = item.value.endsWith("/") ? item.value : `${item.value}/`;
+      setText(next);
+      setEdited(true);
+      setNavigated(false);
+      setHighlight(0);
+      scheduleFetch(next, 0);
+    } else if (ev.key === "Enter") {
+      if (!open) return; // let the modal handle Enter → launch
+      ev.preventDefault();
+      ev.stopPropagation(); // don't also trigger the modal's launch-on-Enter
+      const item = items[highlight];
+      if (item && (navigated || !edited)) commit(item.value, item.kind);
+      else commit(q, "path");
+    } else if (ev.key === "Escape") {
+      if (!open) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      closeMenu();
+    }
+  };
+
+  return (
+    <div className="combobox">
+      <input
+        ref={inputRef}
+        type="text"
+        className="launch-modal-input combobox-input"
+        role="combobox"
+        aria-expanded={open}
+        aria-label={ariaLabel}
+        placeholder={placeholder}
+        value={open ? text : value}
+        onFocus={openMenu}
+        onClick={() => { if (!open) openMenu(); }}
+        onBlur={() => {
+          // Commit edits on blur so clicking Launch uses the typed path.
+          const typed = edited ? q : null;
+          closeMenu();
+          if (typed !== null && typed !== value) onCommit(typed, "path");
+        }}
+        onInput={(ev) => {
+          const next = (ev.currentTarget as HTMLInputElement).value;
+          setText(next);
+          setEdited(true);
+          setNavigated(false);
+          setHighlight(0);
+          setOpen(true);
+          scheduleFetch(next.trim(), 150);
+        }}
+        onKeyDown={onKeyDown}
+      />
+      {open
+        ? (
+          <ul
+            className={`combobox-menu${menuLayout ? "" : " measuring"}`}
+            ref={listRef}
+            role="listbox"
+            style={menuStyle(menuLayout)}
+          >
+            {items.length === 0
+              ? (
+                <li className="combobox-empty">
+                  {edited && q ? "No matches — Enter uses the typed path" : "No matches"}
+                </li>
+              )
+              : items.map((item, i) => (
+                <li
+                  key={`${item.kind}:${item.value}`}
+                  role="option"
+                  aria-selected={item.value === value}
+                  className={`combobox-option${i === highlight ? " highlighted" : ""}${item.value === value ? " selected" : ""}`}
+                  // Keep focus on the input so onBlur doesn't pre-empt this click.
+                  onMouseDown={(ev) => ev.preventDefault()}
+                  onMouseEnter={() => setHighlight(i)}
+                  onClick={() => commit(item.value, item.kind)}
+                >
+                  {item.label}
+                  {item.kind === "option" && item.value !== item.label
+                    ? <span className="combobox-option-path">{item.value}</span>
+                    : null}
                 </li>
               ))}
           </ul>

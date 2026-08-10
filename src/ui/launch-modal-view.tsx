@@ -1,5 +1,5 @@
 import { render } from "preact";
-import { Combobox } from "./combobox";
+import { Combobox, PathCombobox } from "./combobox";
 
 export type LaunchOptionControl =
   | {
@@ -21,8 +21,7 @@ export type LaunchModalViewModel = {
   selectedAgent: string;
   optionControls: LaunchOptionControl[];
   directoryOptions: { value: string; label: string }[];
-  selectedDirectory: string;
-  customDirectoryValue: string;
+  projectPath: string;
   worktreeOptions: { value: string; label: string }[];
   selectedWorktree: string;
   branchValue: string;
@@ -37,8 +36,8 @@ export type LaunchModalHandlers = {
   onClose: () => void;
   onAgentChange: (agent: string) => void;
   onOptionChange: (flag: string, value: string | boolean) => void;
-  onDirectoryChange: (dir: string) => void;
-  onCustomDirectoryChange: (path: string) => void;
+  onProjectPathChange: (path: string, source: "option" | "path") => void;
+  fetchPathCompletions: (prefix: string) => Promise<string[]>;
   onWorktreeChange: (worktree: string) => void;
   onBranchChange: (branch: string) => void;
   onBaseBranchChange: (baseBranch: string) => void;
@@ -56,7 +55,6 @@ export function renderLaunchModal(
   }
 
   const showBranchInput = model.selectedWorktree === "__new__";
-  const showCustomDirectory = model.selectedDirectory === "__custom__";
 
   render(
     <div
@@ -127,27 +125,15 @@ export function renderLaunchModal(
 
         <div className="launch-modal-label">
           Project directory
-          <Combobox
+          <PathCombobox
             options={model.directoryOptions}
-            value={model.selectedDirectory}
-            placeholder="Search projects…"
+            value={model.projectPath}
+            placeholder="Search projects or type a path…"
             ariaLabel="Project directory"
-            onSelect={handlers.onDirectoryChange}
+            onCommit={handlers.onProjectPathChange}
+            fetchCompletions={handlers.fetchPathCompletions}
           />
         </div>
-
-        {showCustomDirectory ? (
-          <label className="launch-modal-label">
-            Custom path
-            <input
-              type="text"
-              className="launch-modal-input"
-              value={model.customDirectoryValue}
-              placeholder="~/projects/my-app"
-              onInput={(ev) => handlers.onCustomDirectoryChange((ev.currentTarget as HTMLInputElement).value)}
-            />
-          </label>
-        ) : null}
 
         {/* div, not label: a <label> forwards clicks to its control, which fights the option list */}
         <div className="launch-modal-label">

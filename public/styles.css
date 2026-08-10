@@ -1495,6 +1495,17 @@ button:disabled {
   font-weight: 600;
 }
 
+.combobox-option-path {
+  margin-left: 8px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.combobox-option.highlighted .combobox-option-path {
+  color: inherit;
+  opacity: 0.75;
+}
+
 .combobox-empty {
   padding: 6px 8px;
   color: var(--muted);
@@ -1504,7 +1515,6 @@ button:disabled {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  min-height: 168px;
 }
 
 .launch-modal-checkbox-label {

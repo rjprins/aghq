@@ -2169,10 +2169,11 @@ type WorktreeOption = { value: string; label: string };
 type LaunchModalState = {
   selectedAgent: string;
   directoryOptions: { value: string; label: string }[];
-  selectedDirectory: string;
-  customDirectoryValue: string;
+  projectPath: string;
+  // Typed/completed paths get "launch here" worktree defaults; picked projects don't.
+  pathIsCustom: boolean;
   selectedWorktree: string;
-  customWorktreeTouched: boolean;
+  worktreeTouched: boolean;
   branchValue: string;
   baseBranchValue: string;
   baseBranchOptions: WorktreeOption[];
@@ -2180,20 +2181,18 @@ type LaunchModalState = {
   launching: boolean;
   savedFlags: Record<string, Record<string, string | boolean>>;
   worktreeOptions: WorktreeOption[];
-  projectRoot: string;
 };
 
 const launchModalRoot = document.createElement("div");
 document.body.appendChild(launchModalRoot);
 let launchModalState: LaunchModalState | null = null;
 let launchModalSeq = 0;
-let customDirRefreshTimer: ReturnType<typeof setTimeout> | undefined;
 const NOOP_LAUNCH_HANDLERS = {
   onClose: () => {},
   onAgentChange: () => {},
   onOptionChange: () => {},
-  onDirectoryChange: () => {},
-  onCustomDirectoryChange: () => {},
+  onProjectPathChange: () => {},
+  fetchPathCompletions: async () => [],
   onWorktreeChange: () => {},
   onBranchChange: () => {},
   onBaseBranchChange: () => {},
@@ -2260,7 +2259,7 @@ function syncLaunchWorktreeSelection(
   dir: string,
   options: WorktreeOption[],
 ): void {
-  if (state.selectedDirectory === "__custom__" && !state.customWorktreeTouched) {
+  if (state.pathIsCustom && !state.worktreeTouched) {
     state.selectedWorktree = options.some((opt) => opt.value === dir)
       ? dir
       : (options[0]?.value ?? "");
@@ -2288,17 +2287,14 @@ function buildDirectoryOptions(): { value: string; label: string }[] {
     const bb = b.split("/").filter(Boolean).at(-1) ?? b;
     return ba.localeCompare(bb);
   });
-  const options = sorted.map((d) => ({
+  return sorted.map((d) => ({
     value: d,
     label: d.split("/").filter(Boolean).at(-1) ?? d,
   }));
-  options.push({ value: "__custom__", label: "Custom path..." });
-  return options;
 }
 
 function getEffectiveProjectRoot(state: LaunchModalState): string {
-  if (state.selectedDirectory === "__custom__") return state.customDirectoryValue;
-  return state.selectedDirectory;
+  return state.projectPath.trim();
 }
 
 function buildLaunchOptionControls(state: LaunchModalState): LaunchOptionControl[] {
@@ -2335,8 +2331,7 @@ function renderLaunchModalState(): void {
       selectedAgent: state.selectedAgent,
       optionControls: buildLaunchOptionControls(state),
       directoryOptions: state.directoryOptions,
-      selectedDirectory: state.selectedDirectory,
-      customDirectoryValue: state.customDirectoryValue,
+      projectPath: state.projectPath,
       worktreeOptions: state.worktreeOptions,
       selectedWorktree: state.selectedWorktree,
       branchValue: state.branchValue,
@@ -2362,11 +2357,11 @@ function renderLaunchModalState(): void {
       launchModalState.savedFlags[launchModalState.selectedAgent] = agentFlags;
       renderLaunchModalState();
     },
-    onDirectoryChange: (dir) => {
+    onProjectPathChange: (pathValue, source) => {
       if (!launchModalState) return;
-      launchModalState.selectedDirectory = dir;
-      launchModalState.projectRoot = dir === "__custom__" ? launchModalState.customDirectoryValue : dir;
-      if (dir === "__custom__") launchModalState.customWorktreeTouched = false;
+      launchModalState.projectPath = pathValue;
+      launchModalState.pathIsCustom = source === "path";
+      launchModalState.worktreeTouched = false;
       renderLaunchModalState();
       // Re-fetch worktrees and default branch for the new directory
       const effectiveRoot = getEffectiveProjectRoot(launchModalState);
@@ -2374,24 +2369,22 @@ function renderLaunchModalState(): void {
         refreshLaunchModalForDirectory(effectiveRoot);
       }
     },
-    onCustomDirectoryChange: (pathValue) => {
-      if (!launchModalState) return;
-      launchModalState.customDirectoryValue = pathValue;
-      launchModalState.projectRoot = pathValue;
-      launchModalState.customWorktreeTouched = false;
-      renderLaunchModalState();
-      // Debounce directory refresh for custom path
-      clearTimeout(customDirRefreshTimer);
-      customDirRefreshTimer = setTimeout(() => {
-        if (!launchModalState || launchModalState.selectedDirectory !== "__custom__") return;
-        const dir = launchModalState.customDirectoryValue.trim();
-        if (dir) refreshLaunchModalForDirectory(dir);
-      }, 500);
+    fetchPathCompletions: async (prefix) => {
+      try {
+        const res = await authFetch(`/api/complete-path?prefix=${encodeURIComponent(prefix)}`);
+        if (!res.ok) return [];
+        const data = await res.json() as { completions?: unknown };
+        return Array.isArray(data.completions)
+          ? data.completions.filter((c): c is string => typeof c === "string")
+          : [];
+      } catch {
+        return [];
+      }
     },
     onWorktreeChange: (worktree) => {
       if (!launchModalState) return;
       launchModalState.selectedWorktree = worktree;
-      if (launchModalState.selectedDirectory === "__custom__") launchModalState.customWorktreeTouched = true;
+      launchModalState.worktreeTouched = true;
       renderLaunchModalState();
     },
     onBranchChange: (branch) => {
@@ -2520,17 +2513,15 @@ function refreshLaunchModalForDirectory(dir: string): void {
 function openLaunchModal(groupCwd: string, preselectedWorktree?: string): void {
   const seq = ++launchModalSeq;
   const dirOptions = buildDirectoryOptions();
-  // If opening from an active group's +, pre-select that directory; otherwise default to __custom__
-  const preselectedDir = groupCwd && dirOptions.some((d) => d.value === groupCwd) ? groupCwd : "__custom__";
-  const homeDir = typeof window !== "undefined" ? "" : "";
 
   launchModalState = {
     selectedAgent: AGENT_CHOICES[0],
     directoryOptions: dirOptions,
-    selectedDirectory: preselectedDir,
-    customDirectoryValue: preselectedDir === "__custom__" ? (groupCwd || homeDir) : "",
+    // Opening from a group's + presets the path; it stays editable either way.
+    projectPath: groupCwd,
+    pathIsCustom: !dirOptions.some((d) => d.value === groupCwd),
     selectedWorktree: preselectedWorktree ?? "__new__",
-    customWorktreeTouched: false,
+    worktreeTouched: false,
     branchValue: "",
     baseBranchValue: "",
     baseBranchOptions: [],
@@ -2538,7 +2529,6 @@ function openLaunchModal(groupCwd: string, preselectedWorktree?: string): void {
     launching: false,
     savedFlags: {},
     worktreeOptions: buildWorktreeOptions(groupCwd),
-    projectRoot: groupCwd,
   };
   renderLaunchModalState();
 

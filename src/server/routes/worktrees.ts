@@ -3,6 +3,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 import type { FastifyInstance } from "fastify";
 import { parseJsonBody } from "../auth.js";
+import { completeDirectoryPath } from "../utils.js";
 import type { SqliteStore } from "../../persist/sqlite.js";
 import type { WorktreeScanner } from "../worktree-scanner.js";
 import type { ReapService } from "../worktree-reap.js";
@@ -45,6 +46,12 @@ export function registerWorktreeRoutes(deps: WorktreeRoutesDeps): void {
     }
     const exists = await worktrees.directoryExists(rawPath);
     return { exists };
+  });
+
+  fastify.get("/api/complete-path", async (req) => {
+    const q = req.query as Record<string, unknown>;
+    const prefix = typeof q.prefix === "string" ? q.prefix : "";
+    return { completions: await completeDirectoryPath(prefix) };
   });
 
   fastify.get("/api/worktrees", async (req, reply) => {
