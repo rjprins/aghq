@@ -114,11 +114,17 @@ function normalizeServerHint(server: TmuxServer | null | undefined): TmuxServer 
 }
 
 /**
- * Create a linked session that shares windows with the target session but has
- * its own independent active-window pointer.  This prevents PTY switches from
- * affecting each other when multiple tmux attach clients are running.
+ * Create a view session for attaching a PTY to one window (or a whole session)
+ * without sharing an active-window pointer with other attach clients.
  *
- * Returns the args needed to attach to the new linked session.
+ * Window-scoped views hold *only* the target window, via link-window. This is
+ * deliberate: a grouped session shares every window in the group, so when its
+ * window died from the inside (ctrl-c/exit) tmux would silently switch the
+ * view to a neighboring window and the PTY kept streaming another session's
+ * tty. With a single linked window the view session dies with the window and
+ * the attach client exits, letting normal PTY-exit cleanup run.
+ *
+ * Returns the args needed to attach to the new view session.
  */
 export async function tmuxCreateLinkedSession(
   windowTarget: string,
@@ -128,40 +134,27 @@ export async function tmuxCreateLinkedSession(
   const windowPart = windowTarget.includes(":") ? windowTarget.slice(windowTarget.indexOf(":") + 1).trim() : "";
   const linked = `${session}_view_${Date.now()}`;
 
-  // Create a grouped (linked) session sharing windows with the parent session.
-  // -d: don't attach, -t: group with parent session
-  const newArgs = ["new-session", "-d", "-s", linked, "-t", session];
-  if (server === "default") {
-    await tmuxDefault(newArgs);
-  } else {
-    await tmuxAgent(newArgs);
-  }
-
-  // If caller provided a specific window target (session:window), keep that
-  // active in the linked session. For plain session targets, keep tmux default.
   if (windowPart.length > 0) {
-    const linkedWindowTarget = `${linked}:${windowPart}`;
-    const selectArgs = ["select-window", "-t", linkedWindowTarget];
-    if (server === "default") {
-      await tmuxDefault(selectArgs);
-    } else {
-      await tmuxAgent(selectArgs);
+    // new-session needs an initial window; replace it with the linked one.
+    const { stdout } = await tmuxExec(server, [
+      "new-session", "-d", "-P", "-F", "#{window_id}", "-s", linked,
+    ]);
+    const bootstrapWindow = stdout.trim();
+    await tmuxExec(server, ["link-window", "-a", "-s", windowTarget, "-t", linked]);
+    if (bootstrapWindow) {
+      await tmuxExec(server, ["kill-window", "-t", `${linked}:${bootstrapWindow}`]);
     }
-
-    // Pin the linked session to this window: if tmux switches the active window
-    // (e.g. because a window is destroyed or a hook fires), automatically switch
-    // back.  This prevents the xterm from silently showing a different project.
-    const hookCmd = `select-window -t ${linkedWindowTarget}`;
-    const hookArgs = ["set-hook", "-t", linked, "session-window-changed", hookCmd];
     try {
-      if (server === "default") {
-        await tmuxDefault(hookArgs);
-      } else {
-        await tmuxAgent(hookArgs);
-      }
+      // The attach client must exit (not hop to another session) when the
+      // window dies and this session is destroyed with it.
+      await tmuxExec(server, ["set-option", "-t", linked, "detach-on-destroy", "on"]);
     } catch {
-      // Older tmux versions may not support set-hook; ignore.
+      // ignore
     }
+  } else {
+    // Whole-session views mirror all windows via a grouped session, keeping an
+    // independent active-window pointer per attach client.
+    await tmuxExec(server, ["new-session", "-d", "-s", linked, "-t", session]);
   }
 
   // Apply UI options (status off, mouse off, etc.) to the linked session so
