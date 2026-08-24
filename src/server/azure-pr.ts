@@ -23,6 +23,7 @@ export type AzureActivePr = {
 
 /** A human (non-system) review comment we may surface or hand to an agent. */
 export type PrComment = {
+  commentId: number;
   threadId: number;
   author: string;
   text: string;
@@ -322,6 +323,7 @@ type RawThread = {
   isDeleted?: boolean;
   threadContext?: { filePath?: string | null; rightFileStart?: { line?: number } | null } | null;
   comments?: {
+    id?: number;
     author?: { uniqueName?: string; displayName?: string };
     content?: string;
     commentType?: string;
@@ -366,12 +368,15 @@ export async function getPrThreadsSummary(ref: AzureRepoRef, prId: number, me: s
 
     const isUnresolved = !RESOLVED_THREAD_STATUS.has(status);
     for (const c of textComments) {
+      const commentId = Number(c.id);
+      if (!Number.isSafeInteger(commentId) || commentId <= 0) continue;
       const at = Date.parse(c.lastUpdatedDate || c.publishedDate || "") || 0;
       const author = c.author?.uniqueName || c.author?.displayName || "?";
       if (author !== me) {
         if (at > latestOtherCommentAt) latestOtherCommentAt = at;
         if (isUnresolved) {
           newComments.push({
+            commentId,
             threadId: thread.id,
             author,
             text: (c.content ?? "").trim(),

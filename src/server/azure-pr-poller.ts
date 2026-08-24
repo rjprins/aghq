@@ -32,8 +32,54 @@ export type MergeProof = {
 const PASTE_START = "\x1b[200~";
 const PASTE_END = "\x1b[201~";
 
-const DELIVERED_PREF = "azurePrDelivered"; // prId -> latestOtherCommentAt already dispatched
+const DELIVERED_PREF = "azurePrDelivered";
 const VIEWED_PREF = "azurePrViewed"; // prId -> ts the user last viewed (set by the UI)
+
+export type PrDeliveryState = {
+  latestAt: number;
+  commentIds: number[];
+};
+
+type StoredPrDeliveryState = number | PrDeliveryState | undefined;
+
+function validDeliveryState(value: StoredPrDeliveryState): PrDeliveryState | null {
+  if (!value || typeof value !== "object") return null;
+  if (!Number.isFinite(value.latestAt) || value.latestAt < 0 || !Array.isArray(value.commentIds)) return null;
+  if (!value.commentIds.every((id) => Number.isSafeInteger(id) && id > 0)) return null;
+  return value;
+}
+
+/** Return only comments that have not already been handed to an agent. */
+export function selectUndeliveredPrComments(
+  comments: PrComment[],
+  delivered: StoredPrDeliveryState,
+): PrComment[] {
+  if (typeof delivered === "number" && Number.isFinite(delivered)) {
+    return comments.filter((comment) => comment.at > delivered);
+  }
+  const state = validDeliveryState(delivered);
+  if (!state) return comments;
+  const deliveredIds = new Set(state.commentIds);
+  return comments.filter((comment) => !deliveredIds.has(comment.commentId));
+}
+
+/** Advance the durable delivery boundary after a successful handoff. */
+export function recordPrCommentsDelivered(
+  previous: StoredPrDeliveryState,
+  comments: PrComment[],
+  latestAt: number,
+): PrDeliveryState {
+  const previousState = validDeliveryState(previous);
+  const commentIds = new Set(previousState?.commentIds ?? []);
+  for (const comment of comments) commentIds.add(comment.commentId);
+  const previousLatestAt = typeof previous === "number" && Number.isFinite(previous)
+    ? previous
+    : previousState?.latestAt ?? 0;
+  return {
+    latestAt: Math.max(previousLatestAt, latestAt),
+    commentIds: [...commentIds],
+  };
+}
 
 export type AzurePrPollerDeps = {
   store: SqliteStore;
@@ -100,7 +146,7 @@ export function createAzurePrPoller(deps: AzurePrPollerDeps) {
         return;
       }
 
-      const delivered = readMap(DELIVERED_PREF);
+      const delivered = store.getPreference<Record<string, StoredPrDeliveryState>>(DELIVERED_PREF) ?? {};
       const viewed = readMap(VIEWED_PREF);
       let deliveredChanged = false;
       const activeNow = new Map<number, { repoRoot: string; branch: string; title: string }>();
@@ -138,10 +184,11 @@ export function createAzurePrPoller(deps: AzurePrPollerDeps) {
           seenKeys.add(branchKey(repoRoot, pr.sourceBranch));
 
           // Dispatch new comments once (until a newer comment arrives).
-          const undelivered = threads.latestOtherCommentAt > (delivered[pr.id] ?? 0) && threads.newComments.length > 0;
-          if (!undelivered) continue;
+          const previousDelivery = delivered[pr.id];
+          const undeliveredComments = selectUndeliveredPrComments(threads.newComments, previousDelivery);
+          if (undeliveredComments.length === 0) continue;
 
-          const prompt = formatCommentPrompt(pr.id, pr.title, threads.unresolvedCount, threads.newComments, summary.url);
+          const prompt = formatCommentPrompt(pr.id, pr.title, threads.unresolvedCount, undeliveredComments, summary.url);
           const branchSessions = sessions.filter(
             (p) =>
               p.projectRoot === repoRoot &&
@@ -153,7 +200,7 @@ export function createAzurePrPoller(deps: AzurePrPollerDeps) {
             const target = branchSessions[0];
             deps.writeToPty(target.id, PASTE_START + prompt + PASTE_END + (deps.autoSubmit ? "\r" : ""));
             logger.info({ prId: pr.id, ptyId: target.id }, "azure-pr: delivered comments to live session");
-            delivered[pr.id] = threads.latestOtherCommentAt;
+            delivered[pr.id] = recordPrCommentsDelivered(previousDelivery, threads.newComments, threads.latestOtherCommentAt);
             deliveredChanged = true;
           } else {
             const wt = worktrees.find((w) => w.branch === pr.sourceBranch);
@@ -169,7 +216,7 @@ export function createAzurePrPoller(deps: AzurePrPollerDeps) {
                 initialInput: prompt,
               });
               logger.info({ prId: pr.id, worktree: wt.path }, "azure-pr: launched agent for PR comments");
-              delivered[pr.id] = threads.latestOtherCommentAt;
+              delivered[pr.id] = recordPrCommentsDelivered(previousDelivery, threads.newComments, threads.latestOtherCommentAt);
               deliveredChanged = true;
             } catch (err) {
               logger.warn({ err: String(err), prId: pr.id }, "azure-pr: launch failed");
