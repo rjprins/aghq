@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  prDeliveryPreferenceKey,
   recordPrCommentsDelivered,
   selectUndeliveredPrComments,
 } from "../src/server/azure-pr-poller.js";
@@ -19,6 +20,13 @@ function comment(commentId: number, at: number): PrComment {
 }
 
 describe("PR review comment delivery", () => {
+  it("scopes delivered comment ids to one repository and PR", () => {
+    const firstRepo = { orgUrl: "https://dev.azure.com/example", project: "One", repo: "app" };
+    const secondRepo = { orgUrl: "https://dev.azure.com/example", project: "Two", repo: "app" };
+
+    expect(prDeliveryPreferenceKey(firstRepo, 42)).not.toBe(prDeliveryPreferenceKey(secondRepo, 42));
+  });
+
   it("does not repeat an earlier unresolved comment when a newer comment arrives", () => {
     const earlier = comment(1, 100);
     const newer = comment(2, 200);

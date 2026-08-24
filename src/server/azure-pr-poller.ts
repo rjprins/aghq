@@ -11,6 +11,7 @@ import {
   getPrById,
   getPrThreadsSummary,
   listMyActivePRs,
+  type AzureRepoRef,
   type PrComment,
 } from "./azure-pr.js";
 
@@ -41,6 +42,10 @@ export type PrDeliveryState = {
 };
 
 type StoredPrDeliveryState = number | PrDeliveryState | undefined;
+
+export function prDeliveryPreferenceKey(ref: AzureRepoRef, prId: number): string {
+  return `${ref.orgUrl}/${encodeURIComponent(ref.project)}/_git/${encodeURIComponent(ref.repo)}/pullrequest/${prId}`;
+}
 
 function validDeliveryState(value: StoredPrDeliveryState): PrDeliveryState | null {
   if (!value || typeof value !== "object") return null;
@@ -184,7 +189,10 @@ export function createAzurePrPoller(deps: AzurePrPollerDeps) {
           seenKeys.add(branchKey(repoRoot, pr.sourceBranch));
 
           // Dispatch new comments once (until a newer comment arrives).
-          const previousDelivery = delivered[pr.id];
+          const deliveryPreferenceKey = prDeliveryPreferenceKey(ref, pr.id);
+          const scopedDelivery = delivered[deliveryPreferenceKey];
+          const legacyDelivery = delivered[pr.id];
+          const previousDelivery = scopedDelivery ?? (typeof legacyDelivery === "number" ? legacyDelivery : undefined);
           const undeliveredComments = selectUndeliveredPrComments(threads.newComments, previousDelivery);
           if (undeliveredComments.length === 0) continue;
 
@@ -200,7 +208,7 @@ export function createAzurePrPoller(deps: AzurePrPollerDeps) {
             const target = branchSessions[0];
             deps.writeToPty(target.id, PASTE_START + prompt + PASTE_END + (deps.autoSubmit ? "\r" : ""));
             logger.info({ prId: pr.id, ptyId: target.id }, "azure-pr: delivered comments to live session");
-            delivered[pr.id] = recordPrCommentsDelivered(previousDelivery, threads.newComments, threads.latestOtherCommentAt);
+            delivered[deliveryPreferenceKey] = recordPrCommentsDelivered(previousDelivery, threads.newComments, threads.latestOtherCommentAt);
             deliveredChanged = true;
           } else {
             const wt = worktrees.find((w) => w.branch === pr.sourceBranch);
@@ -216,7 +224,7 @@ export function createAzurePrPoller(deps: AzurePrPollerDeps) {
                 initialInput: prompt,
               });
               logger.info({ prId: pr.id, worktree: wt.path }, "azure-pr: launched agent for PR comments");
-              delivered[pr.id] = recordPrCommentsDelivered(previousDelivery, threads.newComments, threads.latestOtherCommentAt);
+              delivered[deliveryPreferenceKey] = recordPrCommentsDelivered(previousDelivery, threads.newComments, threads.latestOtherCommentAt);
               deliveredChanged = true;
             } catch (err) {
               logger.warn({ err: String(err), prId: pr.id }, "azure-pr: launch failed");
