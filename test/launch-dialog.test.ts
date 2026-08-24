@@ -405,6 +405,55 @@ describe("createWorktreeFromBase: main branch as base", () => {
   });
 });
 
+describe("createWorktreeFromBase: refreshed remote PR branch", () => {
+  let cleanup: (() => Promise<void>) | undefined;
+
+  beforeEach(() => {
+    _resetCacheForTesting();
+  });
+
+  afterEach(async () => {
+    _resetCacheForTesting();
+    await cleanup?.();
+    cleanup = undefined;
+  });
+
+  test("fetches a remote-only source branch before creating its local worktree", async () => {
+    const repo = await createTempRepo("main");
+    cleanup = repo.cleanup;
+    const remoteRoot = path.join(repo.parentDir, "remote.git");
+    execFileSync("git", ["init", "--bare", remoteRoot], { stdio: "pipe" });
+    execFileSync("git", ["remote", "add", "origin", remoteRoot], { cwd: repo.repoRoot, stdio: "pipe" });
+    execFileSync("git", ["push", "origin", "main"], { cwd: repo.repoRoot, stdio: "pipe" });
+    execFileSync("git", ["switch", "-c", "feature/scanner"], { cwd: repo.repoRoot, stdio: "pipe" });
+    await fs.writeFile(path.join(repo.repoRoot, "scanner.txt"), "remote PR branch\n");
+    execFileSync("git", ["add", "scanner.txt"], { cwd: repo.repoRoot, stdio: "pipe" });
+    execFileSync("git", ["commit", "-m", "add scanner"], { cwd: repo.repoRoot, stdio: "pipe" });
+    const expectedHead = execFileSync("git", ["rev-parse", "HEAD"], {
+      cwd: repo.repoRoot,
+      encoding: "utf8",
+    }).trim();
+    execFileSync("git", ["push", "origin", "feature/scanner"], { cwd: repo.repoRoot, stdio: "pipe" });
+    execFileSync("git", ["switch", "main"], { cwd: repo.repoRoot, stdio: "pipe" });
+    execFileSync("git", ["branch", "-D", "feature/scanner"], { cwd: repo.repoRoot, stdio: "pipe" });
+    execFileSync("git", ["update-ref", "-d", "refs/remotes/origin/feature/scanner"], {
+      cwd: repo.repoRoot,
+      stdio: "pipe",
+    });
+
+    const svc = makeService(repo.repoRoot);
+    const wtPath = await svc.createWorktreeFromBase({
+      projectRoot: repo.repoRoot,
+      branch: "feature/scanner",
+      baseBranch: "origin/feature/scanner",
+      refreshRemoteBase: true,
+    });
+
+    expect(execFileSync("git", ["rev-parse", "HEAD"], { cwd: wtPath, encoding: "utf8" }).trim()).toBe(expectedHead);
+    await expect(fs.readFile(path.join(wtPath, "scanner.txt"), "utf8")).resolves.toBe("remote PR branch\n");
+  });
+});
+
 // ---------------------------------------------------------------------------
 // 7. listWorktrees — main worktree visibility
 // ---------------------------------------------------------------------------

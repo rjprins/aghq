@@ -1,6 +1,11 @@
 import type { AzureActivePr, AzureRepoRef } from "./azure-pr.js";
+import type {
+  AzurePrMenuItem,
+  AzurePrMenuResponse,
+  PrAttention,
+} from "../shared/protocol.js";
 
-export type PrAttention = "new" | "published";
+export type { AzurePrMenuItem, AzurePrMenuResponse, PrAttention } from "../shared/protocol.js";
 
 export type PersistedPrMenuRepoState = {
   known: Record<string, { isDraft: boolean }>;
@@ -10,16 +15,6 @@ export type PersistedPrMenuRepoState = {
 type AttentionInput = { id: number; isDraft: boolean };
 
 type WorktreeSummary = { name: string; path: string; branch: string };
-
-export type AzurePrMenuItem = AzureActivePr & {
-  updatedAt: number;
-  worktree: { name: string; path: string; dirty: boolean } | null;
-  attention: PrAttention | null;
-};
-
-export type AzurePrMenuResponse =
-  | { supported: false; projectRoot: string }
-  | { supported: true; projectRoot: string; fetchedAt: number; prs: AzurePrMenuItem[] };
 
 type PreferenceStore = {
   getPreference: <T = unknown>(key: string) => T | undefined;
@@ -44,6 +39,25 @@ type AzurePrMenuServiceDeps = {
 };
 
 const PR_MENU_STATE_PREF = "azurePrMenuState";
+const PR_DETAIL_CONCURRENCY = 4;
+
+async function mapConcurrent<T, R>(
+  values: T[],
+  concurrency: number,
+  transform: (value: T) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(values.length);
+  let nextIndex = 0;
+  const workers = Array.from({ length: Math.min(concurrency, values.length) }, async () => {
+    while (nextIndex < values.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      results[index] = await transform(values[index]);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
 
 export function reconcilePrMenuState(
   previous: PersistedPrMenuRepoState | undefined,
@@ -83,7 +97,26 @@ export function matchPrWorktree(sourceBranch: string, worktrees: WorktreeSummary
 function readAllState(store: PreferenceStore): Record<string, PersistedPrMenuRepoState> {
   const value = store.getPreference<unknown>(PR_MENU_STATE_PREF);
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
-  return value as Record<string, PersistedPrMenuRepoState>;
+  const result: Record<string, PersistedPrMenuRepoState> = {};
+  for (const [repoRoot, candidate] of Object.entries(value)) {
+    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) continue;
+    const raw = candidate as Record<string, unknown>;
+    if (!raw.known || typeof raw.known !== "object" || Array.isArray(raw.known) ||
+        !raw.attention || typeof raw.attention !== "object" || Array.isArray(raw.attention)) continue;
+
+    const known: PersistedPrMenuRepoState["known"] = {};
+    for (const [id, entry] of Object.entries(raw.known)) {
+      if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
+      const isDraft = (entry as Record<string, unknown>).isDraft;
+      if (typeof isDraft === "boolean") known[id] = { isDraft };
+    }
+    const attention: PersistedPrMenuRepoState["attention"] = {};
+    for (const [id, marker] of Object.entries(raw.attention)) {
+      if (marker === "new" || marker === "published") attention[id] = marker;
+    }
+    result[repoRoot] = { known, attention };
+  }
+  return result;
 }
 
 export function createAzurePrMenuService(deps: AzurePrMenuServiceDeps): AzurePrMenuService {
@@ -101,7 +134,7 @@ export function createAzurePrMenuService(deps: AzurePrMenuServiceDeps): AzurePrM
     stateByRepo[repoRoot] = repoState;
     deps.store.setPreference(PR_MENU_STATE_PREF, stateByRepo);
 
-    const prs = await Promise.all(activePrs.map(async (pr): Promise<AzurePrMenuItem> => {
+    const prs = await mapConcurrent(activePrs, PR_DETAIL_CONCURRENCY, async (pr): Promise<AzurePrMenuItem> => {
       const matched = matchPrWorktree(pr.sourceBranch, worktrees);
       const [updatedAt, dirty] = await Promise.all([
         deps.latestUpdateAt(ref, pr).catch(() => pr.createdAt),
@@ -113,7 +146,7 @@ export function createAzurePrMenuService(deps: AzurePrMenuServiceDeps): AzurePrM
         worktree: matched ? { name: matched.name, path: matched.path, dirty } : null,
         attention: repoState.attention[String(pr.id)] ?? null,
       };
-    }));
+    });
     prs.sort((a, b) => b.updatedAt - a.updatedAt || b.id - a.id);
     return { supported: true, projectRoot: repoRoot, fetchedAt: deps.now(), prs };
   }

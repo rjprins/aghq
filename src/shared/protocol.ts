@@ -37,6 +37,27 @@ export type PrSummary = {
   votes: { by: string; vote: PrReviewVote }[];
 };
 
+export type PrAttention = "new" | "published";
+
+export type AzurePrMenuItem = {
+  id: number;
+  title: string;
+  author: string;
+  isDraft: boolean;
+  sourceBranch: string;
+  targetBranch: string;
+  createdAt: number;
+  updatedAt: number;
+  headSha: string | null;
+  url: string;
+  worktree: { name: string; path: string; dirty: boolean } | null;
+  attention: PrAttention | null;
+};
+
+export type AzurePrMenuResponse =
+  | { supported: false; projectRoot: string }
+  | { supported: true; projectRoot: string; fetchedAt: number; prs: AzurePrMenuItem[] };
+
 /**
  * Lifecycle annotation for the worktree a session lives in, taken from the
  * worktree scanner's cache. Absent when the project has no cached scan.

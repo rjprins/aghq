@@ -42,7 +42,12 @@ type PtyRoutesDeps = {
   };
   worktrees: {
     resolveProjectRoot: (raw: unknown) => Promise<string | null>;
-    createWorktreeFromBase: (opts: { projectRoot?: string | null; branch: string; baseBranch?: string }) => Promise<string>;
+    createWorktreeFromBase: (opts: {
+      projectRoot?: string | null;
+      branch: string;
+      baseBranch?: string;
+      refreshRemoteBase?: boolean;
+    }) => Promise<string>;
     directoryExists: (path: string) => Promise<boolean>;
     isKnownWorktreePath: (path: string) => boolean;
   };
@@ -336,7 +341,12 @@ export function registerPtyRoutes(deps: PtyRoutesDeps): void {
         ? body.baseBranch.trim()
         : defaultBaseBranch;
       try {
-        cwd = await worktrees.createWorktreeFromBase({ projectRoot, branch, baseBranch });
+        cwd = await worktrees.createWorktreeFromBase({
+          projectRoot,
+          branch,
+          baseBranch,
+          refreshRemoteBase: body.refreshRemoteBase === true,
+        });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         reply.code(400);

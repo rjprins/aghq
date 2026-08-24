@@ -1007,6 +1007,184 @@ test("pty list shows running subprocess name", async ({ page }) => {
   }
 });
 
+test("PR menu shows active PR details and acknowledges attention after rendering", async ({ page }) => {
+  const viewedPayloads: unknown[] = [];
+  await page.route((url) => url.pathname === "/api/azure-pr/menu", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        supported: true,
+        projectRoot: "/home/rutger/agmux",
+        fetchedAt: Date.now(),
+        prs: [
+          {
+            id: 4812,
+            title: "Improve launch flow",
+            author: "Rutger Prins",
+            isDraft: false,
+            sourceBranch: "feature/launch-flow",
+            targetBranch: "main",
+            createdAt: Date.now() - 86_400_000,
+            updatedAt: Date.now() - 7_200_000,
+            headSha: "abc123",
+            url: "https://dev.azure.com/example/project/_git/repo/pullrequest/4812?_a=files",
+            worktree: { name: "launch-flow", path: "/repo-launch-flow", dirty: true },
+            attention: "published",
+          },
+          {
+            id: 4809,
+            title: "Try the new scanner",
+            author: "Alex Reviewer",
+            isDraft: true,
+            sourceBranch: "feature/scanner",
+            targetBranch: "main",
+            createdAt: Date.now() - 3_600_000,
+            updatedAt: Date.now() - 3_600_000,
+            headSha: "def456",
+            url: "https://dev.azure.com/example/project/_git/repo/pullrequest/4809?_a=files",
+            worktree: null,
+            attention: "new",
+          },
+        ],
+      }),
+    });
+  });
+  await page.route((url) => url.pathname === "/api/azure-pr/menu/viewed", async (route) => {
+    viewedPayloads.push(route.request().postDataJSON());
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify({ ok: true }) });
+  });
+
+  await page.goto("/?nosup=1");
+  await newShellSession(page);
+
+  const prButton = page.getByRole("button", { name: /Pull requests for agmux/ });
+  await expect(prButton).toBeVisible();
+  await expect(prButton.locator(".pr-menu-attention-dot")).toHaveCount(1);
+  await prButton.click();
+
+  const popover = page.getByRole("dialog", { name: "Pull requests for agmux" });
+  await expect(popover).toBeVisible();
+  await expect(popover.getByText("Improve launch flow")).toBeVisible();
+  await expect(popover.getByText("Rutger Prins")).toBeVisible();
+  await expect(popover.getByText("feature/launch-flow")).toBeVisible();
+  await expect(popover.getByText("Worktree: launch-flow", { exact: true })).toBeVisible();
+  await expect(popover.getByText("dirty")).toBeVisible();
+  await expect(popover.getByText("Published")).toBeVisible();
+  await expect(popover.getByText("Try the new scanner")).toBeVisible();
+  await expect(popover.getByText("Draft")).toBeVisible();
+  await expect(popover.getByText("New", { exact: true })).toBeVisible();
+  await expect(popover.getByRole("button", { name: "Launch agent on PR 4812" })).toBeVisible();
+  await expect(popover.getByRole("link", { name: /PR 4812: Improve launch flow/ })).toHaveAttribute(
+    "href",
+    /pullrequest\/4812/,
+  );
+  await expect.poll(() => viewedPayloads.length).toBe(1);
+  await expect(prButton.locator(".pr-menu-attention-dot")).toHaveCount(0);
+
+  await page.keyboard.press("Escape");
+  await expect(popover).not.toBeVisible();
+  await prButton.click();
+  await expect(popover.getByText("Published", { exact: true })).toHaveCount(0);
+  await expect(popover.getByText("New", { exact: true })).toHaveCount(0);
+});
+
+test("PR launch context checks out the source branch and can start the review flow", async ({ page }) => {
+  const launchPayloads: Array<Record<string, unknown>> = [];
+  let activePtyId = "";
+  await page.route((url) => url.pathname === "/api/azure-pr/menu", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        supported: true,
+        projectRoot: "/home/rutger/agmux",
+        fetchedAt: Date.now(),
+        prs: [
+          {
+            id: 4812,
+            title: "Improve launch flow",
+            author: "Rutger Prins",
+            isDraft: false,
+            sourceBranch: "feature/launch-flow",
+            targetBranch: "main",
+            createdAt: Date.now() - 86_400_000,
+            updatedAt: Date.now() - 7_200_000,
+            headSha: "abc123",
+            url: "https://dev.azure.com/example/project/_git/repo/pullrequest/4812?_a=files",
+            worktree: { name: "launch-flow", path: "/repo-launch-flow", dirty: true },
+            attention: null,
+          },
+          {
+            id: 4809,
+            title: "Try the new scanner",
+            author: "Alex Reviewer",
+            isDraft: true,
+            sourceBranch: "feature/scanner",
+            targetBranch: "main",
+            createdAt: Date.now() - 3_600_000,
+            updatedAt: Date.now() - 3_600_000,
+            headSha: "def456",
+            url: "https://dev.azure.com/example/project/_git/repo/pullrequest/4809?_a=files",
+            worktree: null,
+            attention: null,
+          },
+        ],
+      }),
+    });
+  });
+  await page.route((url) => url.pathname === "/api/ptys/launch", async (route) => {
+    launchPayloads.push(route.request().postDataJSON() as Record<string, unknown>);
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({ id: activePtyId }),
+    });
+  });
+
+  await page.goto("/?nosup=1");
+  await newShellSession(page);
+  activePtyId = await page.locator(".pty-item.active").getAttribute("data-pty-id") ?? "";
+
+  await page.locator(".group-launch").first().click();
+  const ordinaryLaunch = page.getByRole("dialog", { name: /Launch agent/ });
+  await expect(ordinaryLaunch.getByRole("button", { name: "Launch Review" })).toHaveCount(0);
+  await ordinaryLaunch.getByRole("button", { name: "Cancel" }).click();
+
+  await page.getByRole("button", { name: /Pull requests for agmux/ }).click();
+  await page.getByRole("button", { name: "Launch agent on PR 4809" }).click();
+
+  const prLaunch = page.getByRole("dialog", { name: /Launch agent/ });
+  await expect(prLaunch.getByText("PR #4809", { exact: true })).toBeVisible();
+  await expect(prLaunch.getByText("feature/scanner", { exact: true })).toBeVisible();
+  await expect(prLaunch.getByText("Create worktree: feature/scanner", { exact: true })).toBeVisible();
+  await expect(prLaunch.getByRole("button", { name: "Launch", exact: true })).toBeVisible();
+  await prLaunch.getByRole("button", { name: "Launch Review" }).click();
+
+  await expect.poll(() => launchPayloads.length).toBe(1);
+  expect(launchPayloads[0]).toMatchObject({
+    worktree: "__new__",
+    branch: "feature/scanner",
+    baseBranch: "origin/feature/scanner",
+    refreshRemoteBase: true,
+    initialInput: "/review-pr 4809",
+    name: "PR #4809: Try the new scanner",
+  });
+
+  await page.getByRole("button", { name: /Pull requests for agmux/ }).click();
+  await page.getByRole("button", { name: "Launch agent on PR 4812" }).click();
+  const existingWorktreeLaunch = page.getByRole("dialog", { name: /Launch agent/ });
+  await expect(existingWorktreeLaunch.getByText("Use worktree: launch-flow", { exact: true })).toBeVisible();
+  await existingWorktreeLaunch.getByRole("button", { name: "Launch", exact: true }).click();
+
+  await expect.poll(() => launchPayloads.length).toBe(2);
+  expect(launchPayloads[1]).toMatchObject({
+    worktree: "/repo-launch-flow",
+    refreshRemoteBase: false,
+    name: "PR #4812: Improve launch flow",
+  });
+  expect(launchPayloads[1]).not.toHaveProperty("branch");
+  expect(launchPayloads[1]).not.toHaveProperty("baseBranch");
+  expect(launchPayloads[1]).not.toHaveProperty("initialInput");
+});
+
 test("pty list item shows current working directory", async ({ page }) => {
   await page.goto("/?nosup=1");
   await newShellSession(page);

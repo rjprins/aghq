@@ -86,6 +86,7 @@ export type PtyGroup = {
   inactiveWorktrees: InactiveWorktreeSubgroup[];
   inactiveTotal: number;
   inlineInactiveExpanded: boolean;
+  prMenu?: { count: number; hasAttention: boolean };
 };
 
 export type InactiveSection = {
@@ -108,6 +109,7 @@ export type PtyListHandlers = {
   onToggleInlineInactive: (groupKey: string) => void;
   onOpenReactivateProject: (groupKey: string) => void;
   onOpenWorktrees: (groupKey: string) => void;
+  onOpenPrMenu: (groupKey: string, anchor: HTMLElement) => void;
   onOpenLaunch: (groupKey: string) => void;
   onOpenLaunchInWorktree: (groupKey: string, worktreePath: string) => void;
   onSelectPty: (ptyId: string) => void;
@@ -500,6 +502,22 @@ export function renderPtyList(root: Element, model: PtyListModel, handlers: PtyL
               <span className="group-chevron">{group.collapsed ? "\u25b6" : "\u25bc"}</span>
               <span>{group.label}</span>
               <span className="group-header-actions">
+                {group.prMenu ? (
+                  <button
+                    type="button"
+                    className="group-action-btn group-pr-btn"
+                    title="Pull requests"
+                    aria-label={`Pull requests for ${group.label} (${group.prMenu.count})${group.prMenu.hasAttention ? ", new activity" : ""}`}
+                    onClick={(ev) => {
+                      ev.stopPropagation();
+                      handlers.onOpenPrMenu(group.key, ev.currentTarget as HTMLElement);
+                    }}
+                  >
+                    <span>PR</span>
+                    {group.prMenu.count > 0 ? <span className="group-pr-count">{group.prMenu.count}</span> : null}
+                    {group.prMenu.hasAttention ? <span className="pr-menu-attention-dot" aria-hidden="true" /> : null}
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   className="group-action-btn group-worktrees-btn"

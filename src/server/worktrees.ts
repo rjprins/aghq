@@ -239,6 +239,7 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
     projectRoot?: string | null;
     branch: string;
     baseBranch?: string;
+    refreshRemoteBase?: boolean;
   }): Promise<string> {
     const effectiveRepoRoot = options.projectRoot ?? repoRoot;
     const branch = options.branch.trim();
@@ -248,6 +249,23 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
     }
     if (!isBranchFormatLikelySafe(baseBranch)) {
       throw new Error("invalid base branch");
+    }
+    if (options.refreshRemoteBase) {
+      const separator = baseBranch.indexOf("/");
+      const remote = separator > 0 ? baseBranch.slice(0, separator) : "";
+      const remoteBranch = separator > 0 ? baseBranch.slice(separator + 1) : "";
+      if (!/^[A-Za-z0-9._-]{1,80}$/.test(remote) ||
+          !isBranchFormatLikelySafe(remoteBranch) ||
+          !(await gitBranchNameValid(remoteBranch, effectiveRepoRoot))) {
+        throw new Error("remote base branch must use <remote>/<branch>");
+      }
+      await new Promise<void>((resolve, reject) => {
+        const refspec = `+refs/heads/${remoteBranch}:refs/remotes/${remote}/${remoteBranch}`;
+        execFile("git", ["fetch", "--no-tags", remote, refspec], { cwd: effectiveRepoRoot }, (err) => {
+          if (err) reject(err);
+          else resolve();
+        });
+      });
     }
     if (!(await gitRefExists(`${baseBranch}^{commit}`, effectiveRepoRoot))) {
       throw new Error(`base branch not found: ${baseBranch}`);

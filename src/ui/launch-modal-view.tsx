@@ -30,6 +30,14 @@ export type LaunchModalViewModel = {
   baseBranchOptions: { value: string; label: string }[];
   launching: boolean;
   projectName?: string;
+  prContext?: {
+    id: number;
+    title: string;
+    sourceBranch: string;
+    destination: string;
+    createsWorktree: boolean;
+  };
+  showReviewAction?: boolean;
 };
 
 export type LaunchModalHandlers = {
@@ -41,7 +49,7 @@ export type LaunchModalHandlers = {
   onWorktreeChange: (worktree: string) => void;
   onBranchChange: (branch: string) => void;
   onBaseBranchChange: (baseBranch: string) => void;
-  onLaunch: () => void;
+  onLaunch: (review: boolean) => void;
 };
 
 export function renderLaunchModal(
@@ -66,15 +74,31 @@ export function renderLaunchModal(
     >
       <div
         className="launch-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="launch-modal-title"
         tabIndex={-1}
         ref={(el) => { if (el && el !== document.activeElement && !el.contains(document.activeElement)) el.focus(); }}
         onKeyDown={(ev) => {
           if (ev.key !== "Enter") return;
           ev.preventDefault();
-          handlers.onLaunch();
+          handlers.onLaunch(false);
         }}
       >
-        <h3>Launch agent{model.projectName ? ` — ${model.projectName}` : ""}</h3>
+        <h3 id="launch-modal-title">Launch agent{model.projectName ? ` — ${model.projectName}` : ""}</h3>
+
+        {model.prContext ? (
+          <div className="launch-modal-pr-context">
+            <div className="launch-modal-pr-heading">
+              <span>PR #{model.prContext.id}</span>
+              <strong>{model.prContext.title}</strong>
+            </div>
+            <span className="launch-modal-pr-branch">{model.prContext.sourceBranch}</span>
+            <span>
+              {model.prContext.createsWorktree ? "Create worktree" : "Use worktree"}: {model.prContext.destination}
+            </span>
+          </div>
+        ) : null}
 
         <label className="launch-modal-label">
           Agent
@@ -123,63 +147,67 @@ export function renderLaunchModal(
           )}
         </div>
 
-        <div className="launch-modal-label">
-          Project directory
-          <PathCombobox
-            options={model.directoryOptions}
-            value={model.projectPath}
-            placeholder="Search projects or type a path…"
-            ariaLabel="Project directory"
-            onCommit={handlers.onProjectPathChange}
-            fetchCompletions={handlers.fetchPathCompletions}
-          />
-        </div>
-
-        {/* div, not label: a <label> forwards clicks to its control, which fights the option list */}
-        <div className="launch-modal-label">
-          Worktree
-          <Combobox
-            options={model.worktreeOptions}
-            value={model.selectedWorktree}
-            placeholder="Search worktrees…"
-            ariaLabel="Worktree"
-            onSelect={handlers.onWorktreeChange}
-          />
-        </div>
-
-        <label className={`launch-modal-label launch-modal-branch${showBranchInput ? "" : " hidden"}`}>
-          Branch name (optional)
-          <input
-            type="text"
-            className="launch-modal-input"
-            value={model.branchValue}
-            placeholder={model.branchPlaceholder}
-            onInput={(ev) => handlers.onBranchChange((ev.currentTarget as HTMLInputElement).value)}
-          />
-        </label>
-
-        <div className={`launch-modal-label launch-modal-branch${showBranchInput ? "" : " hidden"}`}>
-          Base branch
-          {model.baseBranchOptions.length > 0
-            ? (
-              <Combobox
-                options={model.baseBranchOptions}
-                value={model.baseBranchValue}
-                placeholder="Search branches…"
-                ariaLabel="Base branch"
-                onSelect={handlers.onBaseBranchChange}
+        {!model.prContext ? (
+          <>
+            <div className="launch-modal-label">
+              Project directory
+              <PathCombobox
+                options={model.directoryOptions}
+                value={model.projectPath}
+                placeholder="Search projects or type a path…"
+                ariaLabel="Project directory"
+                onCommit={handlers.onProjectPathChange}
+                fetchCompletions={handlers.fetchPathCompletions}
               />
-            )
-            : (
+            </div>
+
+            {/* div, not label: a <label> forwards clicks to its control, which fights the option list */}
+            <div className="launch-modal-label">
+              Worktree
+              <Combobox
+                options={model.worktreeOptions}
+                value={model.selectedWorktree}
+                placeholder="Search worktrees…"
+                ariaLabel="Worktree"
+                onSelect={handlers.onWorktreeChange}
+              />
+            </div>
+
+            <label className={`launch-modal-label launch-modal-branch${showBranchInput ? "" : " hidden"}`}>
+              Branch name (optional)
               <input
                 type="text"
                 className="launch-modal-input"
-                value={model.baseBranchValue}
-                placeholder="main"
-                onInput={(ev) => handlers.onBaseBranchChange((ev.currentTarget as HTMLInputElement).value)}
+                value={model.branchValue}
+                placeholder={model.branchPlaceholder}
+                onInput={(ev) => handlers.onBranchChange((ev.currentTarget as HTMLInputElement).value)}
               />
-            )}
-        </div>
+            </label>
+
+            <div className={`launch-modal-label launch-modal-branch${showBranchInput ? "" : " hidden"}`}>
+              Base branch
+              {model.baseBranchOptions.length > 0
+                ? (
+                  <Combobox
+                    options={model.baseBranchOptions}
+                    value={model.baseBranchValue}
+                    placeholder="Search branches…"
+                    ariaLabel="Base branch"
+                    onSelect={handlers.onBaseBranchChange}
+                  />
+                )
+                : (
+                  <input
+                    type="text"
+                    className="launch-modal-input"
+                    value={model.baseBranchValue}
+                    placeholder="main"
+                    onInput={(ev) => handlers.onBaseBranchChange((ev.currentTarget as HTMLInputElement).value)}
+                  />
+                )}
+            </div>
+          </>
+        ) : null}
 
         <div className="launch-modal-buttons">
           <button type="button" onClick={() => handlers.onClose()}>Cancel</button>
@@ -187,10 +215,20 @@ export function renderLaunchModal(
             type="button"
             className="launch-modal-go"
             disabled={model.launching}
-            onClick={() => handlers.onLaunch()}
+            onClick={() => handlers.onLaunch(false)}
           >
             {model.launching ? "Launching..." : "Launch"}
           </button>
+          {model.showReviewAction ? (
+            <button
+              type="button"
+              className="launch-modal-go launch-modal-review"
+              disabled={model.launching}
+              onClick={() => handlers.onLaunch(true)}
+            >
+              {model.launching ? "Launching..." : "Launch Review"}
+            </button>
+          ) : null}
         </div>
       </div>
     </div>,

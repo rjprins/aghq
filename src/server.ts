@@ -132,7 +132,9 @@ const reaper = createReapService({
 
 const prMenu = createAzurePrMenuService({
   store,
-  cacheTtlMs: AZURE_PR_POLL_INTERVAL_MS,
+  // Leave a small phase margin so a client polling every interval receives
+  // fresh data instead of hitting a cache created just after its timer began.
+  cacheTtlMs: Math.max(1_000, AZURE_PR_POLL_INTERVAL_MS - 5_000),
   now: Date.now,
   repoRootFromCwd: (cwd) => gitRepoRootFromCwd(cwd),
   repoRefForRoot: AZURE_PR_ENABLED ? azureRepoRefForRoot : async () => null,

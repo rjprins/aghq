@@ -14,6 +14,7 @@ Expose every active Azure DevOps pull request for a project from a compact proje
 - Open the normal launch dialog from the row `+` button.
 - Reuse a matching source-branch worktree even when it is dirty.
 - If no worktree matches, create one by checking out the PR source branch.
+- Refresh the PR's `origin/<sourceBranch>` ref before creating a missing worktree.
 - Show `Launch Review` only when the dialog was opened with explicit PR review context.
 - `Launch Review` starts the chosen agent in the selected or created worktree with `/review-pr <id>` as its initial input.
 - Refresh PR data once per minute. The first successful load establishes an attention baseline.
@@ -50,6 +51,7 @@ type AzurePrMenuResponse =
         targetBranch: string;
         createdAt: number;
         updatedAt: number;
+        headSha: string | null;
         url: string;
         worktree: { name: string; path: string; dirty: boolean } | null;
         attention: "new" | "published" | null;
@@ -80,7 +82,7 @@ External ADO responses are validated and normalized before entering the internal
 - Unit and integration tests: `npm test`
 - Focused tests: `npm test -- test/azure-pr-menu.test.ts`
 - Build and type check: `npm run build`
-- Browser tests: `npm run e2e -- --grep "PR menu"`
+- Browser tests: `npm run e2e -- --grep "PR menu shows|PR launch context"`
 - Development server: `npm run dev`
 
 ## Code style
@@ -122,7 +124,7 @@ Prefer small pure transition functions for attention state. Keep data fetching a
 - `Launch Review` exists only in PR context and sends exactly `/review-pr <id>` as initial input.
 - New PR and draft-to-published transitions produce persistent attention dots without flagging the initial baseline.
 - Opening a loaded menu acknowledges only the markers it displayed.
-- Unit, integration, build, and browser verification pass with no console errors or accessibility regressions.
+- Unit, integration, build, and browser verification pass with no new console errors or accessibility regressions.
 
 ## Implementation plan
 

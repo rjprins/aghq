@@ -214,6 +214,32 @@ function memoryStore(initial: unknown = undefined) {
 }
 
 describe("createAzurePrMenuService", () => {
+  it("repairs malformed persisted attention state as a fresh baseline", async () => {
+    const store = memoryStore({ "/repo": { known: null, attention: "bad" } });
+    const service = createAzurePrMenuService({
+      store,
+      cacheTtlMs: 60_000,
+      now: () => 1_000_000,
+      repoRootFromCwd: () => "/repo",
+      repoRefForRoot: async () => ref,
+      listActivePrs: async () => [activePr(10, false, 100)],
+      latestUpdateAt: async (_ref, pr) => pr.createdAt,
+      listWorktrees: () => [],
+      worktreeStatus: async () => ({ dirty: false }),
+    });
+
+    await expect(service.list("/repo")).resolves.toEqual(expect.objectContaining({
+      supported: true,
+      prs: [expect.objectContaining({ id: 10, attention: null })],
+    }));
+    expect(store.read()).toEqual({
+      "/repo": {
+        known: { "10": { isDraft: false } },
+        attention: {},
+      },
+    });
+  });
+
   it("returns sorted PRs with exact worktree and dirty state", async () => {
     const store = memoryStore();
     const service = createAzurePrMenuService({
@@ -248,6 +274,34 @@ describe("createAzurePrMenuService", () => {
         expect.objectContaining({ id: 11, updatedAt: 300, worktree: null, attention: null }),
       ],
     });
+  });
+
+  it("bounds concurrent PR detail lookups", async () => {
+    const store = memoryStore();
+    let activeLookups = 0;
+    let maxActiveLookups = 0;
+    const service = createAzurePrMenuService({
+      store,
+      cacheTtlMs: 60_000,
+      now: () => 1_000_000,
+      repoRootFromCwd: () => "/repo",
+      repoRefForRoot: async () => ref,
+      listActivePrs: async () => Array.from({ length: 12 }, (_, index) => activePr(index + 1, false, index)),
+      latestUpdateAt: async (_ref, pr) => {
+        activeLookups += 1;
+        maxActiveLookups = Math.max(maxActiveLookups, activeLookups);
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        activeLookups -= 1;
+        return pr.createdAt;
+      },
+      listWorktrees: () => [],
+      worktreeStatus: async () => ({ dirty: false }),
+    });
+
+    await service.list("/repo");
+
+    expect(maxActiveLookups).toBeGreaterThan(1);
+    expect(maxActiveLookups).toBeLessThanOrEqual(4);
   });
 
   it("uses its one-minute cache and refreshes attention after expiry", async () => {

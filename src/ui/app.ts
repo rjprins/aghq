@@ -13,6 +13,9 @@ import {
 } from "./themes";
 import type {
   AgentSessionSummary,
+  AzurePrMenuItem,
+  AzurePrMenuResponse,
+  PrAttention,
   PtyReadinessIndicator,
   PtyReadinessState,
   PtySummary,
@@ -55,6 +58,10 @@ import {
   type LaunchModalViewModel,
   type LaunchOptionControl,
 } from "./launch-modal-view";
+import {
+  renderPrMenu,
+  type PrMenuViewModel,
+} from "./pr-menu-view";
 import {
   renderCloseWorktreeModal,
   type CloseWorktreeModalViewModel,
@@ -1446,6 +1453,145 @@ async function authFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
   });
 }
 
+type PrMenuProjectState = {
+  supported: boolean;
+  prs: AzurePrMenuItem[];
+  lastAttemptAt: number;
+};
+
+type PrMenuOpenState = {
+  projectRoot: string;
+  model: PrMenuViewModel;
+};
+
+const PR_MENU_REFRESH_MS = 60_000;
+const prMenuProjects = new Map<string, PrMenuProjectState>();
+const prMenuRequests = new Map<string, Promise<void>>();
+const prMenuRoot = document.createElement("div");
+document.body.appendChild(prMenuRoot);
+let prMenuOpenState: PrMenuOpenState | null = null;
+
+function isPrMenuResponse(value: unknown): value is AzurePrMenuResponse {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const response = value as Record<string, unknown>;
+  if (typeof response.supported !== "boolean" || typeof response.projectRoot !== "string") return false;
+  return response.supported === false || Array.isArray(response.prs);
+}
+
+function closePrMenu(): void {
+  prMenuOpenState = null;
+  renderPrMenu(prMenuRoot, null, { onClose: () => {}, onLaunch: () => {} });
+}
+
+function clearAcknowledgedPrAttention(
+  projectRoot: string,
+  markers: Array<{ id: number; attention: PrAttention }>,
+): void {
+  const state = prMenuProjects.get(projectRoot);
+  if (!state?.supported) return;
+  const viewed = new Map(markers.map((marker) => [marker.id, marker.attention]));
+  state.prs = state.prs.map((pr) => (
+    pr.attention && viewed.get(pr.id) === pr.attention ? { ...pr, attention: null } : pr
+  ));
+  renderList();
+}
+
+function renderPrMenuState(): void {
+  const open = prMenuOpenState;
+  renderPrMenu(prMenuRoot, open?.model ?? null, {
+    onClose: closePrMenu,
+    onLaunch: (pr) => {
+      if (!prMenuOpenState) return;
+      const projectRoot = prMenuOpenState.projectRoot;
+      closePrMenu();
+      openLaunchModal(projectRoot, pr.worktree?.path, { pr });
+    },
+  });
+}
+
+function prMenuPosition(anchor: HTMLElement): PrMenuViewModel["position"] {
+  const rect = anchor.getBoundingClientRect();
+  const margin = 8;
+  const width = Math.max(0, Math.min(680, window.innerWidth - margin * 2));
+  const left = Math.min(
+    Math.max(margin, rect.right - width),
+    Math.max(margin, window.innerWidth - width - margin),
+  );
+  const below = window.innerHeight - rect.bottom - margin * 2;
+  if (below >= 240) {
+    return {
+      top: rect.bottom + 6,
+      left,
+      width,
+      maxHeight: Math.min(560, below),
+    };
+  }
+  return {
+    top: margin,
+    left,
+    width,
+    maxHeight: Math.max(0, window.innerHeight - margin * 2),
+  };
+}
+
+function openPrMenu(projectRoot: string, anchor: HTMLElement): void {
+  const state = prMenuProjects.get(projectRoot);
+  if (!state?.supported) return;
+  const projectName = projectRoot.split("/").filter(Boolean).at(-1) ?? projectRoot;
+  const prs = state.prs.map((pr) => ({ ...pr, worktree: pr.worktree ? { ...pr.worktree } : null }));
+  prMenuOpenState = {
+    projectRoot,
+    model: { projectName, prs, position: prMenuPosition(anchor) },
+  };
+  renderPrMenuState();
+
+  const markers = prs.flatMap((pr) => (
+    pr.attention ? [{ id: pr.id, attention: pr.attention }] : []
+  ));
+  if (markers.length === 0) return;
+  void authFetch("/api/azure-pr/menu/viewed", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ projectRoot, markers }),
+  })
+    .then((response) => {
+      if (!response.ok) return;
+      clearAcknowledgedPrAttention(projectRoot, markers);
+    })
+    .catch(() => {});
+}
+
+function refreshPrMenuForProject(projectRoot: string, force = false): Promise<void> {
+  const existingRequest = prMenuRequests.get(projectRoot);
+  if (existingRequest) return existingRequest;
+  const previous = prMenuProjects.get(projectRoot);
+  const now = Date.now();
+  if (!force && previous && now - previous.lastAttemptAt < PR_MENU_REFRESH_MS) return Promise.resolve();
+  if (previous) previous.lastAttemptAt = now;
+  else prMenuProjects.set(projectRoot, { supported: false, prs: [], lastAttemptAt: now });
+
+  const request = authFetch(`/api/azure-pr/menu?projectRoot=${encodeURIComponent(projectRoot)}`)
+    .then(async (response) => {
+      if (!response.ok) return;
+      const data: unknown = await response.json();
+      if (!isPrMenuResponse(data)) return;
+      prMenuProjects.set(projectRoot, {
+        supported: data.supported,
+        prs: data.supported ? data.prs : [],
+        lastAttemptAt: Date.now(),
+      });
+      renderList();
+    })
+    .catch(() => {})
+    .finally(() => prMenuRequests.delete(projectRoot));
+  prMenuRequests.set(projectRoot, request);
+  return request;
+}
+
+function refreshPrMenusForProjects(projectRoots: Iterable<string>, force = false): void {
+  for (const projectRoot of projectRoots) void refreshPrMenuForProject(projectRoot, force);
+}
+
 async function loadUiSettings(): Promise<void> {
   const response = await authFetch("/api/settings");
   if (!response.ok) return;
@@ -2166,6 +2312,8 @@ function generateBranchName(): string {
 
 type WorktreeOption = { value: string; label: string };
 
+type LaunchPrContext = { pr: AzurePrMenuItem };
+
 type LaunchModalState = {
   selectedAgent: string;
   directoryOptions: { value: string; label: string }[];
@@ -2181,6 +2329,7 @@ type LaunchModalState = {
   launching: boolean;
   savedFlags: Record<string, Record<string, string | boolean>>;
   worktreeOptions: WorktreeOption[];
+  prContext: LaunchPrContext | null;
 };
 
 const launchModalRoot = document.createElement("div");
@@ -2340,6 +2489,16 @@ function renderLaunchModalState(): void {
       baseBranchOptions: state.baseBranchOptions,
       launching: state.launching,
       projectName: effectiveRoot ? effectiveRoot.split("/").pop() : undefined,
+      prContext: state.prContext
+        ? {
+          id: state.prContext.pr.id,
+          title: state.prContext.pr.title,
+          sourceBranch: state.prContext.pr.sourceBranch,
+          destination: state.prContext.pr.worktree?.name ?? state.prContext.pr.sourceBranch,
+          createsWorktree: state.prContext.pr.worktree === null,
+        }
+        : undefined,
+      showReviewAction: state.prContext !== null,
     }
     : null;
 
@@ -2397,7 +2556,7 @@ function renderLaunchModalState(): void {
       launchModalState.baseBranchValue = baseBranch;
       renderLaunchModalState();
     },
-    onLaunch: () => {
+    onLaunch: (review) => {
       if (!launchModalState || launchModalState.launching) return;
       const stateNow = launchModalState;
       if (!stateNow.selectedAgent || !stateNow.selectedWorktree) return;
@@ -2423,6 +2582,9 @@ function renderLaunchModalState(): void {
           baseBranch,
           flags,
           projectRoot: effectiveProjectRoot || undefined,
+          refreshRemoteBase: stateNow.prContext !== null && stateNow.selectedWorktree === "__new__",
+          name: stateNow.prContext ? `PR #${stateNow.prContext.pr.id}: ${stateNow.prContext.pr.title}` : undefined,
+          initialInput: review && stateNow.prContext ? `/review-pr ${stateNow.prContext.pr.id}` : undefined,
         }),
       })
         .then(async (res) => {
@@ -2435,7 +2597,7 @@ function renderLaunchModalState(): void {
               body: JSON.stringify({
                 projectRoot: projectRoot || undefined,
                 agent: stateNow.selectedAgent,
-                worktree: stateNow.selectedWorktree,
+                ...(stateNow.prContext ? {} : { worktree: stateNow.selectedWorktree }),
                 flags: stateNow.savedFlags,
               }),
             }).catch(() => {});
@@ -2510,7 +2672,7 @@ function refreshLaunchModalForDirectory(dir: string): void {
     });
 }
 
-function openLaunchModal(groupCwd: string, preselectedWorktree?: string): void {
+function openLaunchModal(groupCwd: string, preselectedWorktree?: string, prContext: LaunchPrContext | null = null): void {
   const seq = ++launchModalSeq;
   const dirOptions = buildDirectoryOptions();
 
@@ -2520,15 +2682,16 @@ function openLaunchModal(groupCwd: string, preselectedWorktree?: string): void {
     // Opening from a group's + presets the path; it stays editable either way.
     projectPath: groupCwd,
     pathIsCustom: !dirOptions.some((d) => d.value === groupCwd),
-    selectedWorktree: preselectedWorktree ?? "__new__",
+    selectedWorktree: prContext?.pr.worktree?.path ?? preselectedWorktree ?? "__new__",
     worktreeTouched: false,
-    branchValue: "",
-    baseBranchValue: "",
+    branchValue: prContext?.pr.sourceBranch ?? "",
+    baseBranchValue: prContext ? `origin/${prContext.pr.sourceBranch}` : "",
     baseBranchOptions: [],
     generatedBranch: generateBranchName(),
     launching: false,
     savedFlags: {},
     worktreeOptions: buildWorktreeOptions(groupCwd),
+    prContext,
   };
   renderLaunchModalState();
 
@@ -2549,14 +2712,14 @@ function openLaunchModal(groupCwd: string, preselectedWorktree?: string): void {
       if (prefs.agent && AGENT_CHOICES.includes(prefs.agent)) {
         launchModalState.selectedAgent = prefs.agent;
       }
-      if (typeof prefs.worktree === "string" && !preselectedWorktree) {
+      if (typeof prefs.worktree === "string" && !preselectedWorktree && !prContext) {
         launchModalState.selectedWorktree = prefs.worktree;
       }
       renderLaunchModalState();
     })
     .catch(() => {});
 
-  refreshLaunchModalForDirectory(groupCwd);
+  if (!prContext) refreshLaunchModalForDirectory(groupCwd);
 }
 
 // --- Close worktree modal ---
@@ -5342,6 +5505,12 @@ function renderList(): void {
       inactiveWorktrees: inactiveSub.worktrees,
       inactiveTotal: dirInactiveItems.length,
       inlineInactiveExpanded: inlineInactiveExpanded.has(key),
+      prMenu: prMenuProjects.get(key)?.supported
+        ? {
+          count: prMenuProjects.get(key)?.prs.length ?? 0,
+          hasAttention: prMenuProjects.get(key)?.prs.some((pr) => pr.attention !== null) ?? false,
+        }
+        : undefined,
     };
   });
 
@@ -5450,6 +5619,7 @@ function renderList(): void {
     },
     onOpenReactivateProject: (groupKey) => openReactivateProjectModal(groupKey),
     onOpenWorktrees: (groupKey) => openWorktreesPanel(groupKey),
+    onOpenPrMenu: (groupKey, anchor) => openPrMenu(groupKey, anchor),
     onOpenLaunch: (groupKey) => openLaunchModal(groupKey),
     onOpenLaunchInWorktree: (groupKey, worktreePath) => openLaunchModal(groupKey, worktreePath),
     onSelectPty: (ptyId) => setActive(ptyId),
@@ -5515,6 +5685,7 @@ function renderList(): void {
       renderList();
     },
   });
+  refreshPrMenusForProjects(allVisibleKeys);
   renderMobileViewState();
 }
 
@@ -6532,6 +6703,15 @@ document.addEventListener("visibilitychange", () => {
     listRefreshTimer = null;
   }
   scheduleListRefresh();
+});
+
+setInterval(() => {
+  if (document.hidden) return;
+  refreshPrMenusForProjects(latestPtyListModel?.groups.map((group) => group.key) ?? [], true);
+}, PR_MENU_REFRESH_MS);
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) return;
+  refreshPrMenusForProjects(latestPtyListModel?.groups.map((group) => group.key) ?? [], true);
 });
 
 // Refresh sidebar on a slower, adaptive cadence to reduce idle network traffic.
