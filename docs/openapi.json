@@ -97,7 +97,23 @@
         ],
         "responses": {
           "200": {
-            "description": "OK"
+            "description": "Review comment threads",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "threads": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/PrReviewCommentThread"
+                      }
+                    }
+                  },
+                  "required": ["threads"]
+                }
+              }
+            }
           },
           "400": {
             "description": "Bad request"
@@ -1228,6 +1244,62 @@
         "schema": {
           "type": "string"
         }
+      }
+    },
+    "schemas": {
+      "PrReviewComment": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "author": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "at": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Last update time as Unix epoch milliseconds"
+          },
+          "url": {
+            "type": "string",
+            "format": "uri"
+          }
+        },
+        "required": ["id", "author", "text", "at", "url"]
+      },
+      "PrReviewCommentThread": {
+        "type": "object",
+        "properties": {
+          "threadId": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "resolved": {
+            "type": "boolean"
+          },
+          "status": {
+            "type": "string"
+          },
+          "file": {
+            "type": ["string", "null"]
+          },
+          "line": {
+            "type": ["integer", "null"],
+            "minimum": 1
+          },
+          "comments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PrReviewComment"
+            }
+          }
+        },
+        "required": ["threadId", "resolved", "status", "file", "line", "comments"]
       }
     }
   }

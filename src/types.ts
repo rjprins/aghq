@@ -7,6 +7,8 @@ export type {
   SessionTaskAssignment,
   SessionTaskRef,
   PrReviewVote,
+  PrReviewComment,
+  PrReviewCommentThread,
   PrSummary,
   PtyReadinessIndicator,
   PtyReadinessState,

@@ -37,6 +37,23 @@ export type PrSummary = {
   votes: { by: string; vote: PrReviewVote }[];
 };
 
+export type PrReviewComment = {
+  id: number;
+  author: string;
+  text: string;
+  at: number;
+  url: string;
+};
+
+export type PrReviewCommentThread = {
+  threadId: number;
+  resolved: boolean;
+  status: string;
+  file: string | null;
+  line: number | null;
+  comments: PrReviewComment[];
+};
+
 export type PrAttention = "new" | "published";
 
 export type AzurePrMenuItem = {

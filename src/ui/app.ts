@@ -16,6 +16,7 @@ import type {
   AzurePrMenuItem,
   AzurePrMenuResponse,
   PrAttention,
+  PrReviewCommentThread,
   PtyReadinessIndicator,
   PtyReadinessState,
   PtySummary,
@@ -137,6 +138,7 @@ import {
   type MobileViewModel,
 } from "./mobile-view";
 import { BOT_NAMES, displaySessionName } from "../session-names.js";
+import { buildReviewCommentEvaluationInput } from "./pr-comment-actions.js";
 
 type ServerMsg = ServerToClientMessage;
 
@@ -1415,9 +1417,10 @@ function wsUrl(): string {
   return `${proto}://${location.host}/ws${tokenPart}`;
 }
 
-function sendWsMessage(msg: unknown): void {
-  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+function sendWsMessage(msg: unknown): boolean {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return false;
   ws.send(JSON.stringify(msg));
+  return true;
 }
 
 function flushPendingResizes(ptyId?: string): void {
@@ -3494,20 +3497,12 @@ function renderInputContextBar(): void {
   inputHistoryListEl.classList.remove("hidden");
 }
 
-type PrCommentThreadView = {
-  threadId: number;
-  resolved: boolean;
-  status: string;
-  file: string | null;
-  line: number | null;
-  comments: { author: string; text: string; at: number }[];
-};
-
 let prCommentsExpanded = false;
 let prCommentsForPty: string | null = null;
 let prCommentsLoading = false;
 let prCommentsError: string | null = null;
-let prCommentsData: PrCommentThreadView[] | null = null;
+let prCommentsData: PrReviewCommentThread[] | null = null;
+const submittedPrComments = new Set<string>();
 
 function resetPrComments(): void {
   prCommentsExpanded = false;
@@ -3526,7 +3521,7 @@ async function loadPrComments(ptyId: string): Promise<void> {
   try {
     const res = await authFetch(`/api/azure-pr/threads?ptyId=${encodeURIComponent(ptyId)}`);
     if (!res.ok) throw new Error(await readApiError(res));
-    const body = (await res.json()) as { threads?: PrCommentThreadView[] };
+    const body = (await res.json()) as { threads?: PrReviewCommentThread[] };
     if (prCommentsForPty !== ptyId) return; // active session changed while loading
     prCommentsData = body.threads ?? [];
   } catch (err) {
@@ -3634,13 +3629,59 @@ function renderPrContextBar(): void {
       for (const c of t.comments) {
         const cm = document.createElement("div");
         cm.className = "pr-comment";
+        const meta = document.createElement("div");
+        meta.className = "pr-comment-meta";
         const who = document.createElement("span");
         who.className = "pr-comment-author";
         who.textContent = c.author;
+        const actions = document.createElement("div");
+        actions.className = "pr-comment-actions";
+        const open = document.createElement("a");
+        open.className = "pr-comment-action";
+        open.href = c.url;
+        open.target = "_blank";
+        open.rel = "noopener noreferrer";
+        open.textContent = "Open";
+        open.title = `Open this comment in PR #${pr.id}`;
+        open.setAttribute("aria-label", `Open comment by ${c.author} in PR #${pr.id}`);
+        const submit = document.createElement("button");
+        submit.type = "button";
+        submit.className = "pr-comment-action";
+        const submissionKey = `${activePtyId}:${pr.id}:${t.threadId}:${c.id}`;
+        const submitted = submittedPrComments.has(submissionKey);
+        submit.textContent = submitted ? "Sent" : "Evaluate";
+        submit.disabled = submitted;
+        submit.title = submitted ? "Comment sent to the current agent" : "Ask the current agent to evaluate this comment";
+        submit.setAttribute("aria-label", `Ask the current agent to evaluate comment by ${c.author}`);
+        submit.onclick = (event) => {
+          event.stopPropagation();
+          if (!activePtyId) return;
+          const input = buildReviewCommentEvaluationInput({
+            prId: pr.id,
+            prTitle: pr.title,
+            author: c.author,
+            text: c.text,
+            file: t.file,
+            line: t.line,
+            url: c.url,
+          });
+          const sent = sendWsMessage({ type: "input", ptyId: activePtyId, data: input });
+          if (!sent) {
+            submit.textContent = "Retry";
+            submit.title = "Agent connection unavailable. Try again when the connection is restored.";
+            return;
+          }
+          submittedPrComments.add(submissionKey);
+          submit.textContent = "Sent";
+          submit.title = "Comment sent to the current agent";
+          submit.disabled = true;
+        };
+        actions.append(open, submit);
+        meta.append(who, actions);
         const text = document.createElement("span");
         text.className = "pr-comment-text";
         text.textContent = c.text;
-        cm.append(who, text);
+        cm.append(meta, text);
         thread.append(cm);
       }
       panel.append(thread);

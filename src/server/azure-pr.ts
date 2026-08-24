@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
-import type { PrReviewVote, PrSummary } from "../types.js";
+import type { PrReviewCommentThread, PrReviewVote, PrSummary } from "../types.js";
 
 const execFileAsync = promisify(execFile);
 const AZ_MAX_BUFFER = 16 * 1024 * 1024;
@@ -102,6 +102,12 @@ export async function azureRepoRefForRoot(repoRoot: string): Promise<AzureRepoRe
 /** Deep link to the PR's Files tab. */
 export function prFilesUrl(ref: AzureRepoRef, prId: number): string {
   return `${ref.orgUrl}/${encodeURIComponent(ref.project)}/_git/${encodeURIComponent(ref.repo)}/pullrequest/${prId}?_a=files`;
+}
+
+/** Browser link that opens one PR discussion. */
+export function prDiscussionUrl(ref: AzureRepoRef, prId: number, threadId: number): string {
+  // Source: https://learn.microsoft.com/azure/devops/service-hooks/events#pull-request-commented-on
+  return `${ref.orgUrl}/${encodeURIComponent(ref.project)}/_git/${encodeURIComponent(ref.repo)}/pullrequest/${prId}?discussionId=${threadId}`;
 }
 
 function objectRecord(value: unknown): Record<string, unknown> | null {
@@ -412,23 +418,15 @@ export function buildPrSummary(
   };
 }
 
-export type PrCommentThread = {
-  threadId: number;
-  resolved: boolean;
-  status: string;
-  file: string | null;
-  line: number | null;
-  comments: { author: string; text: string; at: number }[];
-};
-
 /** All human comment threads on a PR (resolved + active), ordered oldest activity first. */
-export async function getPrComments(ref: AzureRepoRef, prId: number): Promise<PrCommentThread[]> {
+export async function getPrComments(ref: AzureRepoRef, prId: number): Promise<PrReviewCommentThread[]> {
   const threads = await fetchRawThreads(ref, prId);
-  const out: PrCommentThread[] = [];
+  const out: PrReviewCommentThread[] = [];
   for (const thread of threads) {
     if (thread.isDeleted) continue;
     const textComments = (thread.comments ?? []).filter(
-      (c) => !c.isDeleted && c.commentType === "text" && (c.content ?? "").trim().length > 0,
+      (c) => !c.isDeleted && c.commentType === "text" && (c.content ?? "").trim().length > 0 &&
+        Number.isSafeInteger(c.id) && Number(c.id) > 0,
     );
     if (textComments.length === 0) continue;
     const status = (thread.status ?? "").toLowerCase();
@@ -439,13 +437,15 @@ export async function getPrComments(ref: AzureRepoRef, prId: number): Promise<Pr
       file: thread.threadContext?.filePath ?? null,
       line: thread.threadContext?.rightFileStart?.line ?? null,
       comments: textComments.map((c) => ({
+        id: Number(c.id),
         author: c.author?.uniqueName || c.author?.displayName || "?",
         text: (c.content ?? "").trim(),
         at: Date.parse(c.lastUpdatedDate || c.publishedDate || "") || 0,
+        url: prDiscussionUrl(ref, prId, thread.id),
       })),
     });
   }
-  const latest = (t: PrCommentThread) => t.comments.reduce((m, c) => Math.max(m, c.at), 0);
+  const latest = (t: PrReviewCommentThread) => t.comments.reduce((m, c) => Math.max(m, c.at), 0);
   out.sort((a, b) => latest(a) - latest(b));
   return out;
 }
