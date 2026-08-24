@@ -3562,12 +3562,17 @@ function renderPrContextBar(): void {
 
   const row = document.createElement("div");
   row.className = "pr-bar-row";
-  row.title = "Show review comments";
+  row.title = prCommentsExpanded ? "Hide review comments" : "Show review comments";
   row.onclick = () => togglePrComments();
 
-  const chevron = document.createElement("span");
+  const chevron = document.createElement("button");
+  chevron.type = "button";
   chevron.className = "pr-chevron";
   chevron.textContent = prCommentsExpanded ? "▾" : "▸";
+  chevron.title = prCommentsExpanded ? "Hide review comments" : "Show review comments";
+  chevron.setAttribute("aria-label", chevron.title);
+  chevron.setAttribute("aria-expanded", prCommentsExpanded ? "true" : "false");
+  chevron.setAttribute("aria-controls", "pr-comments-panel");
 
   const link = document.createElement("a");
   link.className = "pr-link";
@@ -3608,6 +3613,7 @@ function renderPrContextBar(): void {
   if (!prCommentsExpanded) return;
 
   const panel = document.createElement("div");
+  panel.id = "pr-comments-panel";
   panel.className = "pr-comments";
   if (prCommentsLoading) {
     panel.textContent = "Loading comments…";
@@ -3652,7 +3658,10 @@ function renderPrContextBar(): void {
         submit.textContent = submitted ? "Sent" : "Evaluate";
         submit.disabled = submitted;
         submit.title = submitted ? "Comment sent to the current agent" : "Ask the current agent to evaluate this comment";
-        submit.setAttribute("aria-label", `Ask the current agent to evaluate comment by ${c.author}`);
+        submit.setAttribute(
+          "aria-label",
+          submitted ? `Sent comment by ${c.author} to the current agent` : `Evaluate comment by ${c.author} with the current agent`,
+        );
         submit.onclick = (event) => {
           event.stopPropagation();
           if (!activePtyId) return;
@@ -3669,11 +3678,13 @@ function renderPrContextBar(): void {
           if (!sent) {
             submit.textContent = "Retry";
             submit.title = "Agent connection unavailable. Try again when the connection is restored.";
+            submit.setAttribute("aria-label", `Retry evaluating comment by ${c.author} with the current agent`);
             return;
           }
           submittedPrComments.add(submissionKey);
           submit.textContent = "Sent";
           submit.title = "Comment sent to the current agent";
+          submit.setAttribute("aria-label", `Sent comment by ${c.author} to the current agent`);
           submit.disabled = true;
         };
         actions.append(open, submit);
