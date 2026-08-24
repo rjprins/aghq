@@ -1512,7 +1512,7 @@ function renderPrMenuState(): void {
 function prMenuPosition(anchor: HTMLElement): PrMenuViewModel["position"] {
   const rect = anchor.getBoundingClientRect();
   const margin = 8;
-  const width = Math.max(0, Math.min(680, window.innerWidth - margin * 2));
+  const width = Math.max(0, Math.min(920, window.innerWidth - margin * 2));
   const left = Math.min(
     Math.max(margin, rect.right - width),
     Math.max(margin, window.innerWidth - width - margin),

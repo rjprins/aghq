@@ -1059,11 +1059,23 @@ test("PR menu shows active PR details and acknowledges attention after rendering
 
   const prButton = page.getByRole("button", { name: /Pull requests for agmux/ });
   await expect(prButton).toBeVisible();
+  await expect(prButton).toHaveCSS("opacity", "0.7");
   await expect(prButton.locator(".pr-menu-attention-dot")).toHaveCount(1);
   await prButton.click();
 
   const popover = page.getByRole("dialog", { name: "Pull requests for agmux" });
   await expect(popover).toBeVisible();
+  const table = popover.getByRole("table", { name: "Active pull requests" });
+  await expect(table).toBeVisible();
+  for (const heading of ["Title", "Author", "State", "Source branch", "Worktree", "Updated"]) {
+    await expect(table.getByRole("columnheader", { name: heading })).toBeVisible();
+  }
+  const publishedRow = table.getByRole("row", { name: /PR 4812: Improve launch flow/ });
+  await expect(publishedRow.getByRole("cell", { name: "Rutger Prins" })).toBeVisible();
+  await expect(publishedRow.getByRole("cell", { name: "Active" })).toBeVisible();
+  const draftRow = table.getByRole("row", { name: /PR 4809: Try the new scanner/ });
+  await expect(draftRow.getByRole("cell", { name: "Alex Reviewer" })).toBeVisible();
+  await expect(draftRow.getByRole("cell", { name: "Draft" })).toBeVisible();
   await expect(popover.getByText("Improve launch flow")).toBeVisible();
   await expect(popover.getByText("Rutger Prins")).toBeVisible();
   await expect(popover.getByText("feature/launch-flow")).toBeVisible();
@@ -1077,6 +1089,10 @@ test("PR menu shows active PR details and acknowledges attention after rendering
   await expect(popover.getByRole("link", { name: /PR 4812: Improve launch flow/ })).toHaveAttribute(
     "href",
     /pullrequest\/4812/,
+  );
+  await expect(popover.getByRole("link", { name: /PR 4812: Improve launch flow/ })).toHaveAttribute(
+    "title",
+    "Improve launch flow",
   );
   await expect.poll(() => viewedPayloads.length).toBe(1);
   await expect(prButton.locator(".pr-menu-attention-dot")).toHaveCount(0);

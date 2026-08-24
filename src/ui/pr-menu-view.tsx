@@ -82,53 +82,81 @@ export function renderPrMenu(
         {model.prs.length === 0
           ? <div className="pr-menu-empty">No active pull requests.</div>
           : (
-            <ul className="pr-menu-list">
-              {model.prs.map((pr) => {
-                const attention = attentionLabel(pr.attention);
-                return (
-                  <li key={pr.id} className="pr-menu-item">
-                    <a
-                      className="pr-menu-item-link"
-                      href={pr.url}
-                      target="_blank"
-                      rel="noreferrer"
-                      aria-label={`PR ${pr.id}: ${pr.title}`}
-                    >
-                      <div className="pr-menu-item-heading">
-                        <span className="pr-menu-id">#{pr.id}</span>
-                        <span className="pr-menu-title">{pr.title}</span>
-                        {pr.isDraft ? <span className="pr-menu-badge draft">Draft</span> : null}
-                        {attention ? <span className={`pr-menu-badge attention ${pr.attention}`}>{attention}</span> : null}
-                      </div>
-                      <div className="pr-menu-meta">
-                        <span>{pr.author}</span>
-                        <span title={new Date(pr.updatedAt).toLocaleString()}>updated {formatRelativeTime(pr.updatedAt)}</span>
-                        <span className="pr-menu-branch" title={pr.sourceBranch}>{pr.sourceBranch}</span>
-                      </div>
-                      <div className="pr-menu-worktree">
-                        {pr.worktree
-                          ? (
-                            <>
-                              <span title={pr.worktree.path}>Worktree: {pr.worktree.name}</span>
-                              {pr.worktree.dirty ? <span className="pr-menu-badge dirty">dirty</span> : null}
-                            </>
-                          )
-                          : <span>No local worktree</span>}
-                      </div>
-                    </a>
-                    <button
-                      type="button"
-                      className="pr-menu-launch"
-                      title="Launch agent"
-                      aria-label={`Launch agent on PR ${pr.id}`}
-                      onClick={() => handlers.onLaunch(pr)}
-                    >
-                      +
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
+            <div className="pr-menu-table-scroll">
+              <table className="pr-menu-table" aria-label="Active pull requests">
+                <thead>
+                  <tr>
+                    <th scope="col" className="pr-menu-title-column">Title</th>
+                    <th scope="col">Author</th>
+                    <th scope="col">State</th>
+                    <th scope="col">Source branch</th>
+                    <th scope="col">Worktree</th>
+                    <th scope="col">Updated</th>
+                    <th scope="col" className="pr-menu-action-column" aria-label="Action"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {model.prs.map((pr) => {
+                    const attention = attentionLabel(pr.attention);
+                    return (
+                      <tr key={pr.id}>
+                        <td className="pr-menu-title-cell">
+                          <div className="pr-menu-title-line">
+                            <a
+                              className="pr-menu-title-link"
+                              href={pr.url}
+                              target="_blank"
+                              rel="noreferrer"
+                              title={pr.title}
+                              aria-label={`PR ${pr.id}: ${pr.title}`}
+                            >
+                              <span className="pr-menu-id">#{pr.id}</span>
+                              <span className="pr-menu-title">{pr.title}</span>
+                            </a>
+                            {attention
+                              ? <span className={`pr-menu-badge attention ${pr.attention}`}>{attention}</span>
+                              : null}
+                          </div>
+                        </td>
+                        <td className="pr-menu-author" title={pr.author}>{pr.author}</td>
+                        <td className="pr-menu-state">
+                          <span className={`pr-menu-badge ${pr.isDraft ? "draft" : "active"}`}>
+                            {pr.isDraft ? "Draft" : "Active"}
+                          </span>
+                        </td>
+                        <td><span className="pr-menu-branch" title={pr.sourceBranch}>{pr.sourceBranch}</span></td>
+                        <td>
+                          <div className="pr-menu-worktree">
+                            {pr.worktree
+                              ? (
+                                <>
+                                  <span title={pr.worktree.path}>Worktree: {pr.worktree.name}</span>
+                                  {pr.worktree.dirty ? <span className="pr-menu-badge dirty">dirty</span> : null}
+                                </>
+                              )
+                              : <span>No local worktree</span>}
+                          </div>
+                        </td>
+                        <td className="pr-menu-updated" title={new Date(pr.updatedAt).toLocaleString()}>
+                          {formatRelativeTime(pr.updatedAt)}
+                        </td>
+                        <td className="pr-menu-action-cell">
+                          <button
+                            type="button"
+                            className="pr-menu-launch"
+                            title="Launch agent"
+                            aria-label={`Launch agent on PR ${pr.id}`}
+                            onClick={() => handlers.onLaunch(pr)}
+                          >
+                            +
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           )}
       </section>
     </div>,
