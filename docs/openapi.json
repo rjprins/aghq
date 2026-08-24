@@ -11,6 +11,77 @@
     }
   ],
   "paths": {
+    "/api/azure-pr/menu": {
+      "get": {
+        "summary": "List active Azure DevOps PRs and matching worktrees for a project",
+        "parameters": [
+          {
+            "name": "projectRoot",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Active PR menu data, or an unsupported-repository result"
+          },
+          "400": {
+            "description": "Invalid project root"
+          },
+          "502": {
+            "description": "Upstream ADO failure"
+          }
+        }
+      }
+    },
+    "/api/azure-pr/menu/viewed": {
+      "post": {
+        "summary": "Acknowledge new or newly published PR markers displayed by the menu",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "projectRoot": {
+                    "type": "string"
+                  },
+                  "markers": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "integer"
+                        },
+                        "attention": {
+                          "type": "string",
+                          "enum": ["new", "published"]
+                        }
+                      },
+                      "required": ["id", "attention"]
+                    }
+                  }
+                },
+                "required": ["projectRoot", "markers"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Markers acknowledged"
+          },
+          "400": {
+            "description": "Invalid project root or markers"
+          }
+        }
+      }
+    },
     "/api/azure-pr/threads": {
       "get": {
         "summary": "Fetch the review comment threads for the PR shown on a session",

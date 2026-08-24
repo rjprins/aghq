@@ -30,6 +30,8 @@ import {
   assertLoopbackHostAllowed,
 } from "./server/config.js";
 import { createAzurePrPoller } from "./server/azure-pr-poller.js";
+import { createAzurePrMenuService } from "./server/azure-pr-menu.js";
+import { azureRepoRefForRoot, getLatestPrUpdateAt, listActivePRs } from "./server/azure-pr.js";
 import { registerAzurePrRoutes } from "./server/routes/azure-pr.js";
 import { createRuntime } from "./server/pty-runtime.js";
 import { registerAgentRoutes } from "./server/routes/agents.js";
@@ -45,6 +47,7 @@ import { createWorktreeScanner } from "./server/worktree-scanner.js";
 import { createReapService } from "./server/worktree-reap.js";
 import { lookupMergeProof, lookupPrProofById } from "./server/azure-pr-poller.js";
 import { registerWs } from "./server/ws.js";
+import { gitRepoRootFromCwd } from "./worktree.js";
 
 assertLoopbackHostAllowed();
 
@@ -127,6 +130,18 @@ const reaper = createReapService({
   resolveDefaultBranch: (root) => worktrees.defaultBranch(root),
 });
 
+const prMenu = createAzurePrMenuService({
+  store,
+  cacheTtlMs: AZURE_PR_POLL_INTERVAL_MS,
+  now: Date.now,
+  repoRootFromCwd: (cwd) => gitRepoRootFromCwd(cwd),
+  repoRefForRoot: AZURE_PR_ENABLED ? azureRepoRefForRoot : async () => null,
+  listActivePrs: listActivePRs,
+  latestUpdateAt: getLatestPrUpdateAt,
+  listWorktrees: (repoRoot) => worktrees.listWorktrees(repoRoot).worktrees,
+  worktreeStatus: (worktreePath) => worktrees.worktreeStatus(worktreePath),
+});
+
 registerWorktreeRoutes({ fastify, worktrees, scanner, reaper, store });
 registerTmuxRoutes({ fastify });
 registerSettingsRoutes({ fastify, store });
@@ -140,7 +155,13 @@ registerPtyRoutes({
   defaultBaseBranch: DEFAULT_BASE_BRANCH,
   agmuxSession: AGMUX_SESSION,
 });
-registerAzurePrRoutes({ fastify, store, listPtys: runtime.listPtys });
+registerAzurePrRoutes({
+  fastify,
+  store,
+  listPtys: runtime.listPtys,
+  resolveProjectRoot: worktrees.resolveProjectRoot,
+  prMenu,
+});
 registerTriggerRoutes({ fastify, loadTriggersAndBroadcast: runtime.loadTriggersAndBroadcast });
 registerStaticRoutes({ fastify, publicDir: PUBLIC_DIR });
 

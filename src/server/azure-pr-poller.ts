@@ -1,5 +1,3 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import type { FastifyBaseLogger } from "fastify";
 
 import type { PtySummary } from "../types.js";
@@ -7,33 +5,14 @@ import type { SqliteStore } from "../persist/sqlite.js";
 import { branchAtCwd, getWorktreeCache } from "../worktree.js";
 import {
   buildPrSummary,
+  azureRepoRefForRoot,
   getCompletedPrForBranch,
   getCurrentUser,
   getPrById,
   getPrThreadsSummary,
   listMyActivePRs,
-  parseAzureRemote,
-  type AzureRepoRef,
   type PrComment,
 } from "./azure-pr.js";
-
-const execFileAsync = promisify(execFile);
-
-// repoRoot -> Azure ref (or null if not an Azure remote); avoids re-shelling git.
-const remoteCache = new Map<string, AzureRepoRef | null>();
-
-async function azureRefForRepo(repoRoot: string): Promise<AzureRepoRef | null> {
-  if (remoteCache.has(repoRoot)) return remoteCache.get(repoRoot) ?? null;
-  let ref: AzureRepoRef | null = null;
-  try {
-    const { stdout } = await execFileAsync("git", ["-C", repoRoot, "remote", "get-url", "origin"], { timeout: 10_000 });
-    ref = parseAzureRemote(stdout.trim());
-  } catch {
-    ref = null;
-  }
-  remoteCache.set(repoRoot, ref);
-  return ref;
-}
 
 /** Durable record of a PR's completion, enough to detect post-merge commits offline. */
 export type MergeProof = {
@@ -128,7 +107,7 @@ export function createAzurePrPoller(deps: AzurePrPollerDeps) {
       const polledRepos = new Set<string>();
 
       for (const repoRoot of repoRoots) {
-        const ref = await azureRefForRepo(repoRoot);
+        const ref = await azureRepoRefForRoot(repoRoot);
         if (!ref) continue;
 
         let prs;
@@ -222,7 +201,7 @@ export function createAzurePrPoller(deps: AzurePrPollerDeps) {
   ): Promise<void> {
     for (const [prId, info] of [...trackedPrs]) {
       if (!polledRepos.has(info.repoRoot) || activeNow.has(prId)) continue;
-      const ref = await azureRefForRepo(info.repoRoot);
+      const ref = await azureRepoRefForRoot(info.repoRoot);
       if (!ref) {
         trackedPrs.delete(prId);
         continue;
@@ -288,7 +267,7 @@ export async function lookupMergeProof(repoRoot: string, branch: string): Promis
   const cached = proofCache.get(key);
   if (cached && Date.now() - cached.at < PROOF_TTL_MS) return cached.value;
 
-  const ref = await azureRefForRepo(repoRoot);
+  const ref = await azureRepoRefForRoot(repoRoot);
   if (!ref) return null;
   const pr = await getCompletedPrForBranch(ref, branch);
   const value: MergeProof | null = pr
@@ -322,7 +301,7 @@ export async function lookupPrProofById(repoRoot: string, prId: number): Promise
   const cached = prByIdCache.get(key);
   if (cached && Date.now() - cached.at < PROOF_TTL_MS) return cached.value;
 
-  const ref = await azureRefForRepo(repoRoot);
+  const ref = await azureRepoRefForRoot(repoRoot);
   if (!ref) return null;
   let value: PrByIdProof | null = null;
   try {

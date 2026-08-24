@@ -9,6 +9,18 @@ const AZ_TIMEOUT_MS = 30_000;
 
 export type AzureRepoRef = { orgUrl: string; project: string; repo: string };
 
+export type AzureActivePr = {
+  id: number;
+  title: string;
+  author: string;
+  isDraft: boolean;
+  sourceBranch: string;
+  targetBranch: string;
+  createdAt: number;
+  headSha: string | null;
+  url: string;
+};
+
 /** A human (non-system) review comment we may surface or hand to an agent. */
 export type PrComment = {
   threadId: number;
@@ -68,9 +80,91 @@ export function parseAzureRemote(remoteUrl: string): AzureRepoRef | null {
   return null;
 }
 
+const remoteCache = new Map<string, AzureRepoRef | null>();
+
+/** Resolve and cache the Azure DevOps repository represented by a git root. */
+export async function azureRepoRefForRoot(repoRoot: string): Promise<AzureRepoRef | null> {
+  if (remoteCache.has(repoRoot)) return remoteCache.get(repoRoot) ?? null;
+  let ref: AzureRepoRef | null = null;
+  try {
+    const { stdout } = await execFileAsync("git", ["-C", repoRoot, "remote", "get-url", "origin"], {
+      timeout: 10_000,
+    });
+    ref = parseAzureRemote(stdout.trim());
+  } catch {
+    ref = null;
+  }
+  remoteCache.set(repoRoot, ref);
+  return ref;
+}
+
 /** Deep link to the PR's Files tab. */
 export function prFilesUrl(ref: AzureRepoRef, prId: number): string {
   return `${ref.orgUrl}/${encodeURIComponent(ref.project)}/_git/${encodeURIComponent(ref.repo)}/pullrequest/${prId}?_a=files`;
+}
+
+function objectRecord(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function nonEmptyString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function shortBranch(value: unknown): string | null {
+  const refName = nonEmptyString(value);
+  if (!refName?.startsWith("refs/heads/")) return null;
+  const branch = refName.slice("refs/heads/".length);
+  return branch ? branch : null;
+}
+
+/** Validate and normalize the third-party payload returned by `az repos pr list`. */
+export function normalizeActivePrRecords(ref: AzureRepoRef, value: unknown): AzureActivePr[] {
+  if (!Array.isArray(value)) return [];
+  const prs: AzureActivePr[] = [];
+  for (const candidate of value) {
+    const raw = objectRecord(candidate);
+    if (!raw) continue;
+    const id = raw.pullRequestId;
+    const title = nonEmptyString(raw.title);
+    const sourceBranch = shortBranch(raw.sourceRefName);
+    const targetBranch = shortBranch(raw.targetRefName);
+    const createdAt = typeof raw.creationDate === "string" ? Date.parse(raw.creationDate) : Number.NaN;
+    if (!Number.isSafeInteger(id) || Number(id) <= 0 || !title || !sourceBranch || !targetBranch) continue;
+    if (!Number.isFinite(createdAt) || typeof raw.isDraft !== "boolean") continue;
+
+    const createdBy = objectRecord(raw.createdBy);
+    const author = nonEmptyString(createdBy?.displayName) ?? nonEmptyString(createdBy?.uniqueName) ?? "Unknown";
+    const lastMergeSourceCommit = objectRecord(raw.lastMergeSourceCommit);
+    const headSha = nonEmptyString(lastMergeSourceCommit?.commitId);
+    prs.push({
+      id: Number(id),
+      title,
+      author,
+      isDraft: raw.isDraft,
+      sourceBranch,
+      targetBranch,
+      createdAt,
+      headSha,
+      url: prFilesUrl(ref, Number(id)),
+    });
+  }
+  return prs;
+}
+
+/** Latest documented PR iteration timestamp, with a stable creation-time fallback. */
+export function latestIterationUpdatedAt(value: unknown, fallback: number): number {
+  const raw = objectRecord(value);
+  if (!Array.isArray(raw?.value)) return fallback;
+  let latest = fallback;
+  for (const candidate of raw.value) {
+    const iteration = objectRecord(candidate);
+    const updatedAt = typeof iteration?.updatedDate === "string" ? Date.parse(iteration.updatedDate) : Number.NaN;
+    if (Number.isFinite(updatedAt)) latest = Math.max(latest, updatedAt);
+  }
+  return latest;
 }
 
 async function azJson<T>(args: string[]): Promise<T> {
@@ -125,6 +219,36 @@ export async function listMyActivePRs(ref: AzureRepoRef, creator: string): Promi
       vote: VOTE_MAP[r.vote ?? 0] ?? "noVote",
     })),
   }));
+}
+
+/** List every active PR in a repo, including draft PRs. */
+export async function listActivePRs(ref: AzureRepoRef): Promise<AzureActivePr[]> {
+  const raw = await azJson<unknown>([
+    "repos", "pr", "list",
+    "--org", ref.orgUrl,
+    "--project", ref.project,
+    "--repository", ref.repo,
+    "--status", "active",
+    "--top", "1000",
+    "--only-show-errors",
+    "-o", "json",
+  ]);
+  return normalizeActivePrRecords(ref, raw);
+}
+
+/** Fetch the latest code-iteration timestamp documented by ADO for one PR. */
+export async function getLatestPrUpdateAt(ref: AzureRepoRef, pr: AzureActivePr): Promise<number> {
+  const raw = await azJson<unknown>([
+    "devops", "invoke",
+    "--org", ref.orgUrl,
+    "--area", "git",
+    "--resource", "pullRequestIterations",
+    "--route-parameters", `project=${ref.project}`, `repositoryId=${ref.repo}`, `pullRequestId=${pr.id}`,
+    "--api-version", "7.1",
+    "--only-show-errors",
+    "-o", "json",
+  ]);
+  return latestIterationUpdatedAt(raw, pr.createdAt);
 }
 
 type RawPrDetails = {
