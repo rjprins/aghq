@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  calculatePrMergeReadiness,
   latestIterationUpdatedAt,
   normalizeActivePrRecords,
+  summarizePolicyEvaluations,
   type AzureRepoRef,
 } from "../src/server/azure-pr.js";
 import {
@@ -29,6 +31,11 @@ function rawPr(overrides: Record<string, unknown> = {}) {
     isDraft: true,
     createdBy: { displayName: "Rutger Prins", uniqueName: "rutger@example.com" },
     lastMergeSourceCommit: { commitId: "abc123" },
+    mergeStatus: "succeeded",
+    reviewers: [
+      { displayName: "Alex", vote: 10 },
+      { displayName: "Sam", vote: 0 },
+    ],
     ...overrides,
   };
 }
@@ -47,6 +54,8 @@ describe("normalizeActivePrRecords", () => {
       targetBranch: "main",
       createdAt: Date.parse("2026-08-24T08:55:41.378675Z"),
       headSha: "abc123",
+      mergeStatus: "succeeded",
+      reviewerVotes: [10, 0],
       url: "https://dev.azure.com/example/Demo%20Project/_git/demo-repo/pullrequest/42?_a=files",
     });
   });
@@ -71,6 +80,83 @@ describe("normalizeActivePrRecords", () => {
     ]);
 
     expect(pr?.author).toBe("rutger@example.com");
+  });
+
+  it("maps undocumented merge and vote values to safe fallbacks", () => {
+    const [pr] = normalizeActivePrRecords(ref, [rawPr({
+      mergeStatus: "surprising",
+      reviewers: [{ vote: 42 }, { vote: -5 }, { vote: "10" }],
+    })]);
+
+    expect(pr?.mergeStatus).toBe("unknown");
+    expect(pr?.reviewerVotes).toEqual([-5]);
+  });
+});
+
+describe("summarizePolicyEvaluations", () => {
+  it("reports build validation separately while considering every blocking policy", () => {
+    expect(summarizePolicyEvaluations([
+      {
+        status: "approved",
+        configuration: {
+          isBlocking: true,
+          type: { id: "0609B952-1397-4640-95EC-E00A01B2C241", displayName: "Build" },
+        },
+      },
+      {
+        status: "running",
+        configuration: {
+          isBlocking: true,
+          type: { id: "fa4e907d-c16b-4a4c-9dfa-4906e5d171dd", displayName: "Minimum approval count" },
+        },
+      },
+      {
+        status: "rejected",
+        configuration: {
+          isBlocking: false,
+          type: { id: "0609b952-1397-4640-95ec-e00a01b2c241", displayName: "Build" },
+        },
+      },
+    ])).toEqual({ ciStatus: "failed", requiredPolicyStatus: "pending" });
+  });
+
+  it("distinguishes no build validation from malformed policy data", () => {
+    expect(summarizePolicyEvaluations([])).toEqual({ ciStatus: "none", requiredPolicyStatus: "none" });
+    expect(summarizePolicyEvaluations({ value: "bad" })).toEqual({
+      ciStatus: "unknown",
+      requiredPolicyStatus: "unknown",
+    });
+  });
+});
+
+describe("calculatePrMergeReadiness", () => {
+  const readyInput = {
+    isDraft: false,
+    mergeStatus: "succeeded" as const,
+    unresolvedComments: 0,
+    approvals: 2,
+    hasBlockingVote: false,
+    requiredPolicyStatus: "passing" as const,
+  };
+
+  it("is ready when reviews, comments, policies, and the test merge are clear", () => {
+    expect(calculatePrMergeReadiness(readyInput)).toBe("ready");
+  });
+
+  it.each([
+    ["draft status", { isDraft: true }],
+    ["unresolved comments", { unresolvedComments: 1 }],
+    ["missing approval", { approvals: 0 }],
+    ["blocking vote", { hasBlockingVote: true }],
+    ["merge conflict", { mergeStatus: "conflicts" as const }],
+    ["required policy failure", { requiredPolicyStatus: "failed" as const }],
+  ])("is blocked by %s", (_reason, override) => {
+    expect(calculatePrMergeReadiness({ ...readyInput, ...override })).toBe("blocked");
+  });
+
+  it("distinguishes checks in progress from unavailable detail", () => {
+    expect(calculatePrMergeReadiness({ ...readyInput, requiredPolicyStatus: "pending" })).toBe("checking");
+    expect(calculatePrMergeReadiness({ ...readyInput, unresolvedComments: null })).toBe("unknown");
   });
 });
 
@@ -200,6 +286,8 @@ function activePr(id: number, isDraft: boolean, createdAt: number, authorUniqueN
     targetBranch: "main",
     createdAt,
     headSha: `sha-${id}`,
+    mergeStatus: "succeeded" as const,
+    reviewerVotes: [10],
     url: `https://example.test/pr/${id}`,
   };
 }
@@ -215,6 +303,13 @@ function memoryStore(initial: unknown = undefined) {
   };
 }
 
+const reviewDetails = async () => ({
+  comments: { resolved: 2, total: 2 },
+  approvals: 1,
+  readiness: "ready" as const,
+  ciStatus: "passing" as const,
+});
+
 describe("createAzurePrMenuService", () => {
   it("marks the signed-in user's PR without exposing their unique name", async () => {
     const service = createAzurePrMenuService({
@@ -226,6 +321,7 @@ describe("createAzurePrMenuService", () => {
       currentUser: async () => "rutger@example.com",
       listActivePrs: async () => [activePr(10, false, 100, "RUTGER@example.com")],
       latestUpdateAt: async (_ref, pr) => pr.createdAt,
+      reviewDetails,
       listWorktrees: () => [],
       worktreeStatus: async () => ({ dirty: false }),
     });
@@ -235,6 +331,7 @@ describe("createAzurePrMenuService", () => {
     expect(result.supported && result.prs[0]).toEqual(expect.objectContaining({
       id: 10,
       isOwnAuthor: true,
+      review: await reviewDetails(),
     }));
     expect(result.supported && result.prs[0]).not.toHaveProperty("authorUniqueName");
   });
@@ -250,6 +347,7 @@ describe("createAzurePrMenuService", () => {
       currentUser: async () => "me@example.com",
       listActivePrs: async () => [activePr(10, false, 100)],
       latestUpdateAt: async (_ref, pr) => pr.createdAt,
+      reviewDetails,
       listWorktrees: () => [],
       worktreeStatus: async () => ({ dirty: false }),
     });
@@ -280,6 +378,7 @@ describe("createAzurePrMenuService", () => {
         activePr(11, true, 200),
       ],
       latestUpdateAt: async (_ref, pr) => pr.id === 10 ? 500 : 300,
+      reviewDetails,
       listWorktrees: () => [
         { name: "feature-10", path: "/repo-feature-10", branch: "feature/10" },
       ],
@@ -322,6 +421,7 @@ describe("createAzurePrMenuService", () => {
         activeLookups -= 1;
         return pr.createdAt;
       },
+      reviewDetails,
       listWorktrees: () => [],
       worktreeStatus: async () => ({ dirty: false }),
     });
@@ -349,6 +449,7 @@ describe("createAzurePrMenuService", () => {
         return prs;
       },
       latestUpdateAt: async (_ref, pr) => pr.createdAt,
+      reviewDetails,
       listWorktrees: () => [],
       worktreeStatus: async () => ({ dirty: false }),
     });
@@ -384,6 +485,7 @@ describe("createAzurePrMenuService", () => {
       currentUser: async () => "me@example.com",
       listActivePrs: async () => [activePr(10, false, 100)],
       latestUpdateAt: async (_ref, pr) => pr.createdAt,
+      reviewDetails,
       listWorktrees: () => [],
       worktreeStatus: async () => ({ dirty: false }),
     });
@@ -417,6 +519,7 @@ describe("createAzurePrMenuService", () => {
         return [];
       },
       latestUpdateAt: async (_ref, pr) => pr.createdAt,
+      reviewDetails,
       listWorktrees: () => [],
       worktreeStatus: async () => ({ dirty: false }),
     });

@@ -2,6 +2,7 @@ import type { AzureActivePr, AzureRepoRef } from "./azure-pr.js";
 import type {
   AzurePrMenuItem,
   AzurePrMenuResponse,
+  AzurePrMenuReview,
   PrAttention,
 } from "../shared/protocol.js";
 
@@ -35,6 +36,7 @@ type AzurePrMenuServiceDeps = {
   currentUser: () => Promise<string>;
   listActivePrs: (ref: AzureRepoRef) => Promise<AzureActivePr[]>;
   latestUpdateAt: (ref: AzureRepoRef, pr: AzureActivePr) => Promise<number>;
+  reviewDetails: (ref: AzureRepoRef, pr: AzureActivePr, currentUser: string) => Promise<AzurePrMenuReview>;
   listWorktrees: (repoRoot: string) => WorktreeSummary[];
   worktreeStatus: (path: string) => Promise<{ dirty: boolean }>;
 };
@@ -140,17 +142,31 @@ export function createAzurePrMenuService(deps: AzurePrMenuServiceDeps): AzurePrM
     deps.store.setPreference(PR_MENU_STATE_PREF, stateByRepo);
 
     const prs = await mapConcurrent(activePrs, PR_DETAIL_CONCURRENCY, async (pr): Promise<AzurePrMenuItem> => {
-      const { authorUniqueName, ...menuPr } = pr;
       const matched = matchPrWorktree(pr.sourceBranch, worktrees);
-      const [updatedAt, dirty] = await Promise.all([
+      const [updatedAt, dirty, review] = await Promise.all([
         deps.latestUpdateAt(ref, pr).catch(() => pr.createdAt),
         matched ? deps.worktreeStatus(matched.path).then((status) => status.dirty).catch(() => false) : false,
+        deps.reviewDetails(ref, pr, rawCurrentUser.trim()).catch((): AzurePrMenuReview => ({
+          comments: null,
+          approvals: pr.reviewerVotes.filter((vote) => vote === 5 || vote === 10).length,
+          readiness: "unknown",
+          ciStatus: "unknown",
+        })),
       ]);
       return {
-        ...menuPr,
-        isOwnAuthor: Boolean(currentUser && authorUniqueName?.toLowerCase() === currentUser),
+        id: pr.id,
+        title: pr.title,
+        author: pr.author,
+        isOwnAuthor: Boolean(currentUser && pr.authorUniqueName?.toLowerCase() === currentUser),
+        isDraft: pr.isDraft,
+        sourceBranch: pr.sourceBranch,
+        targetBranch: pr.targetBranch,
+        createdAt: pr.createdAt,
         updatedAt,
+        headSha: pr.headSha,
+        url: pr.url,
         worktree: matched ? { name: matched.name, path: matched.path, dirty } : null,
+        review,
         attention: repoState.attention[String(pr.id)] ?? null,
       };
     });

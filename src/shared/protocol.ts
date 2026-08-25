@@ -56,6 +56,16 @@ export type PrReviewCommentThread = {
 
 export type PrAttention = "new" | "published";
 
+export type PrCheckStatus = "passing" | "pending" | "failed" | "none" | "unknown";
+export type PrMergeReadiness = "ready" | "blocked" | "checking" | "unknown";
+
+export type AzurePrMenuReview = {
+  comments: { resolved: number; total: number } | null;
+  approvals: number;
+  readiness: PrMergeReadiness;
+  ciStatus: PrCheckStatus;
+};
+
 export type AzurePrMenuItem = {
   id: number;
   title: string;
@@ -69,6 +79,7 @@ export type AzurePrMenuItem = {
   headSha: string | null;
   url: string;
   worktree: { name: string; path: string; dirty: boolean } | null;
+  review?: AzurePrMenuReview;
   attention: PrAttention | null;
 };
 

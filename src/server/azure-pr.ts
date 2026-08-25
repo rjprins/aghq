@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
+import type { AzurePrMenuReview, PrCheckStatus, PrMergeReadiness } from "../shared/protocol.js";
 import type { PrReviewCommentThread, PrReviewVote, PrSummary } from "../types.js";
 
 const execFileAsync = promisify(execFile);
@@ -8,6 +9,15 @@ const AZ_MAX_BUFFER = 16 * 1024 * 1024;
 const AZ_TIMEOUT_MS = 30_000;
 
 export type AzureRepoRef = { orgUrl: string; project: string; repo: string };
+
+export type AzurePrMergeStatus =
+  | "notSet"
+  | "queued"
+  | "conflicts"
+  | "succeeded"
+  | "rejectedByPolicy"
+  | "failure"
+  | "unknown";
 
 export type AzureActivePr = {
   id: number;
@@ -19,6 +29,8 @@ export type AzureActivePr = {
   targetBranch: string;
   createdAt: number;
   headSha: string | null;
+  mergeStatus: AzurePrMergeStatus;
+  reviewerVotes: number[];
   url: string;
 };
 
@@ -52,6 +64,20 @@ const VOTE_MAP: Record<number, PrReviewVote> = {
   [-5]: "waitingForAuthor",
   [-10]: "rejected",
 };
+
+const MERGE_STATUSES = new Set<AzurePrMergeStatus>([
+  "notSet",
+  "queued",
+  "conflicts",
+  "succeeded",
+  "rejectedByPolicy",
+  "failure",
+]);
+
+const REVIEWER_VOTES = new Set([-10, -5, 0, 5, 10]);
+// Azure DevOps' documented Build validation policy type.
+// https://learn.microsoft.com/azure/devops/repos/git/branch-policies#build-validation
+const BUILD_POLICY_TYPE_ID = "0609b952-1397-4640-95ec-e00a01b2c241";
 
 /**
  * Parse an Azure DevOps git remote into { orgUrl, project, repo }. Supports the
@@ -148,6 +174,16 @@ export function normalizeActivePrRecords(ref: AzureRepoRef, value: unknown): Azu
     const author = nonEmptyString(createdBy?.displayName) ?? authorUniqueName ?? "Unknown";
     const lastMergeSourceCommit = objectRecord(raw.lastMergeSourceCommit);
     const headSha = nonEmptyString(lastMergeSourceCommit?.commitId);
+    const rawMergeStatus = nonEmptyString(raw.mergeStatus);
+    const mergeStatus = rawMergeStatus && MERGE_STATUSES.has(rawMergeStatus as AzurePrMergeStatus)
+      ? rawMergeStatus as AzurePrMergeStatus
+      : "unknown";
+    const reviewerVotes = Array.isArray(raw.reviewers)
+      ? raw.reviewers.flatMap((candidate) => {
+        const reviewer = objectRecord(candidate);
+        return typeof reviewer?.vote === "number" && REVIEWER_VOTES.has(reviewer.vote) ? [reviewer.vote] : [];
+      })
+      : [];
     prs.push({
       id: Number(id),
       title,
@@ -158,6 +194,8 @@ export function normalizeActivePrRecords(ref: AzureRepoRef, value: unknown): Azu
       targetBranch,
       createdAt,
       headSha,
+      mergeStatus,
+      reviewerVotes,
       url: prFilesUrl(ref, Number(id)),
     });
   }
@@ -175,6 +213,95 @@ export function latestIterationUpdatedAt(value: unknown, fallback: number): numb
     if (Number.isFinite(updatedAt)) latest = Math.max(latest, updatedAt);
   }
   return latest;
+}
+
+type PolicySummary = {
+  ciStatus: PrCheckStatus;
+  requiredPolicyStatus: PrCheckStatus;
+};
+
+type NormalizedPolicyEvaluation = {
+  status: string;
+  isBlocking: boolean;
+  typeId: string;
+};
+
+function aggregatePolicyStatuses(statuses: string[]): PrCheckStatus {
+  if (statuses.length === 0) return "none";
+  if (statuses.some((status) => status === "rejected" || status === "broken")) return "failed";
+  if (statuses.some((status) => status === "queued" || status === "running")) return "pending";
+  if (statuses.some((status) => status !== "approved" && status !== "notapplicable")) return "unknown";
+  return "passing";
+}
+
+/** Summarize documented ADO policy evaluations into CI and blocking-policy state. */
+export function summarizePolicyEvaluations(value: unknown): PolicySummary {
+  const wrapped = objectRecord(value);
+  const candidates = Array.isArray(value) ? value : Array.isArray(wrapped?.value) ? wrapped.value : null;
+  if (!candidates) return { ciStatus: "unknown", requiredPolicyStatus: "unknown" };
+
+  let malformed = false;
+  const evaluations: NormalizedPolicyEvaluation[] = [];
+  for (const candidate of candidates) {
+    const raw = objectRecord(candidate);
+    const configuration = objectRecord(raw?.configuration);
+    const type = objectRecord(configuration?.type);
+    const status = nonEmptyString(raw?.status)?.toLowerCase();
+    const typeId = nonEmptyString(type?.id)?.toLowerCase();
+    if (!status || typeof configuration?.isBlocking !== "boolean" || !typeId) {
+      malformed = true;
+      continue;
+    }
+    evaluations.push({ status, isBlocking: configuration.isBlocking, typeId });
+  }
+
+  const requiredStatuses = evaluations.filter((evaluation) => evaluation.isBlocking).map((evaluation) => evaluation.status);
+  const buildStatuses = evaluations.filter((evaluation) => evaluation.typeId === BUILD_POLICY_TYPE_ID).map((evaluation) => evaluation.status);
+  if (malformed) {
+    requiredStatuses.push("unknown");
+    buildStatuses.push("unknown");
+  }
+  return {
+    ciStatus: aggregatePolicyStatuses(buildStatuses),
+    requiredPolicyStatus: aggregatePolicyStatuses(requiredStatuses),
+  };
+}
+
+export type PrMergeReadinessInput = {
+  isDraft: boolean;
+  mergeStatus: AzurePrMergeStatus;
+  unresolvedComments: number | null;
+  approvals: number;
+  hasBlockingVote: boolean;
+  requiredPolicyStatus: PrCheckStatus;
+};
+
+/** Calculate a conservative merge readiness summary from independently fetched ADO state. */
+export function calculatePrMergeReadiness(input: PrMergeReadinessInput): PrMergeReadiness {
+  if (
+    input.isDraft ||
+    (input.unresolvedComments !== null && input.unresolvedComments > 0) ||
+    input.approvals === 0 ||
+    input.hasBlockingVote ||
+    input.mergeStatus === "conflicts" ||
+    input.mergeStatus === "rejectedByPolicy" ||
+    input.mergeStatus === "failure" ||
+    input.requiredPolicyStatus === "failed"
+  ) return "blocked";
+
+  if (
+    input.mergeStatus === "notSet" ||
+    input.mergeStatus === "queued" ||
+    input.requiredPolicyStatus === "pending"
+  ) return "checking";
+
+  if (
+    input.unresolvedComments === null ||
+    input.mergeStatus === "unknown" ||
+    input.requiredPolicyStatus === "unknown"
+  ) return "unknown";
+
+  return input.mergeStatus === "succeeded" ? "ready" : "unknown";
 }
 
 async function azJson<T>(args: string[]): Promise<T> {
@@ -259,6 +386,52 @@ export async function getLatestPrUpdateAt(ref: AzureRepoRef, pr: AzureActivePr):
     "-o", "json",
   ]);
   return latestIterationUpdatedAt(raw, pr.createdAt);
+}
+
+async function getPrPolicyEvaluations(ref: AzureRepoRef, prId: number): Promise<unknown> {
+  return azJson<unknown>([
+    "repos", "pr", "policy", "list",
+    "--id", String(prId),
+    "--org", ref.orgUrl,
+    "--only-show-errors",
+    "-o", "json",
+  ]);
+}
+
+/** Fetch review comments and policy evaluations without letting one failed detail hide the other. */
+export async function getPrMenuReviewDetails(
+  ref: AzureRepoRef,
+  pr: AzureActivePr,
+  currentUser: string,
+): Promise<AzurePrMenuReview> {
+  const [threadsResult, policiesResult] = await Promise.allSettled([
+    getPrThreadsSummary(ref, pr.id, currentUser),
+    getPrPolicyEvaluations(ref, pr.id),
+  ]);
+  const comments = threadsResult.status === "fulfilled"
+    ? {
+      resolved: threadsResult.value.resolvedCount,
+      total: threadsResult.value.resolvedCount + threadsResult.value.unresolvedCount,
+    }
+    : null;
+  const policies = policiesResult.status === "fulfilled"
+    ? summarizePolicyEvaluations(policiesResult.value)
+    : { ciStatus: "unknown" as const, requiredPolicyStatus: "unknown" as const };
+  const approvals = pr.reviewerVotes.filter((vote) => vote === 5 || vote === 10).length;
+  const hasBlockingVote = pr.reviewerVotes.some((vote) => vote === -5 || vote === -10);
+  return {
+    comments,
+    approvals,
+    readiness: calculatePrMergeReadiness({
+      isDraft: pr.isDraft,
+      mergeStatus: pr.mergeStatus,
+      unresolvedComments: comments ? comments.total - comments.resolved : null,
+      approvals,
+      hasBlockingVote,
+      requiredPolicyStatus: policies.requiredPolicyStatus,
+    }),
+    ciStatus: policies.ciStatus,
+  };
 }
 
 type RawPrDetails = {

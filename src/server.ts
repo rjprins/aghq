@@ -31,7 +31,13 @@ import {
 } from "./server/config.js";
 import { createAzurePrPoller } from "./server/azure-pr-poller.js";
 import { createAzurePrMenuService } from "./server/azure-pr-menu.js";
-import { azureRepoRefForRoot, getCurrentUser, getLatestPrUpdateAt, listActivePRs } from "./server/azure-pr.js";
+import {
+  azureRepoRefForRoot,
+  getCurrentUser,
+  getLatestPrUpdateAt,
+  getPrMenuReviewDetails,
+  listActivePRs,
+} from "./server/azure-pr.js";
 import { registerAzurePrRoutes } from "./server/routes/azure-pr.js";
 import { createRuntime } from "./server/pty-runtime.js";
 import { registerAgentRoutes } from "./server/routes/agents.js";
@@ -141,6 +147,7 @@ const prMenu = createAzurePrMenuService({
   currentUser: getCurrentUser,
   listActivePrs: listActivePRs,
   latestUpdateAt: getLatestPrUpdateAt,
+  reviewDetails: getPrMenuReviewDetails,
   listWorktrees: (repoRoot) => worktrees.listWorktrees(repoRoot).worktrees,
   worktreeStatus: (worktreePath) => worktrees.worktreeStatus(worktreePath),
 });
