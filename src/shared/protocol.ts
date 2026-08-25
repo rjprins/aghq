@@ -60,6 +60,7 @@ export type AzurePrMenuItem = {
   id: number;
   title: string;
   author: string;
+  isOwnAuthor?: boolean;
   isDraft: boolean;
   sourceBranch: string;
   targetBranch: string;

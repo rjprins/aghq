@@ -13,6 +13,7 @@ export type AzureActivePr = {
   id: number;
   title: string;
   author: string;
+  authorUniqueName: string | null;
   isDraft: boolean;
   sourceBranch: string;
   targetBranch: string;
@@ -143,13 +144,15 @@ export function normalizeActivePrRecords(ref: AzureRepoRef, value: unknown): Azu
     if (!Number.isFinite(createdAt) || typeof raw.isDraft !== "boolean") continue;
 
     const createdBy = objectRecord(raw.createdBy);
-    const author = nonEmptyString(createdBy?.displayName) ?? nonEmptyString(createdBy?.uniqueName) ?? "Unknown";
+    const authorUniqueName = nonEmptyString(createdBy?.uniqueName);
+    const author = nonEmptyString(createdBy?.displayName) ?? authorUniqueName ?? "Unknown";
     const lastMergeSourceCommit = objectRecord(raw.lastMergeSourceCommit);
     const headSha = nonEmptyString(lastMergeSourceCommit?.commitId);
     prs.push({
       id: Number(id),
       title,
       author,
+      authorUniqueName,
       isDraft: raw.isDraft,
       sourceBranch,
       targetBranch,

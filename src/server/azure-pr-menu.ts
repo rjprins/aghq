@@ -32,6 +32,7 @@ type AzurePrMenuServiceDeps = {
   now: () => number;
   repoRootFromCwd: (cwd: string) => string | null;
   repoRefForRoot: (repoRoot: string) => Promise<AzureRepoRef | null>;
+  currentUser: () => Promise<string>;
   listActivePrs: (ref: AzureRepoRef) => Promise<AzureActivePr[]>;
   latestUpdateAt: (ref: AzureRepoRef, pr: AzureActivePr) => Promise<number>;
   listWorktrees: (repoRoot: string) => WorktreeSummary[];
@@ -127,7 +128,11 @@ export function createAzurePrMenuService(deps: AzurePrMenuServiceDeps): AzurePrM
     const ref = await deps.repoRefForRoot(repoRoot);
     if (!ref) return { supported: false, projectRoot: repoRoot };
 
-    const activePrs = await deps.listActivePrs(ref);
+    const [activePrs, rawCurrentUser] = await Promise.all([
+      deps.listActivePrs(ref),
+      deps.currentUser().catch(() => ""),
+    ]);
+    const currentUser = rawCurrentUser.trim().toLowerCase();
     const worktrees = deps.listWorktrees(repoRoot);
     const stateByRepo = readAllState(deps.store);
     const repoState = reconcilePrMenuState(stateByRepo[repoRoot], activePrs);
@@ -135,13 +140,15 @@ export function createAzurePrMenuService(deps: AzurePrMenuServiceDeps): AzurePrM
     deps.store.setPreference(PR_MENU_STATE_PREF, stateByRepo);
 
     const prs = await mapConcurrent(activePrs, PR_DETAIL_CONCURRENCY, async (pr): Promise<AzurePrMenuItem> => {
+      const { authorUniqueName, ...menuPr } = pr;
       const matched = matchPrWorktree(pr.sourceBranch, worktrees);
       const [updatedAt, dirty] = await Promise.all([
         deps.latestUpdateAt(ref, pr).catch(() => pr.createdAt),
         matched ? deps.worktreeStatus(matched.path).then((status) => status.dirty).catch(() => false) : false,
       ]);
       return {
-        ...pr,
+        ...menuPr,
+        isOwnAuthor: Boolean(currentUser && authorUniqueName?.toLowerCase() === currentUser),
         updatedAt,
         worktree: matched ? { name: matched.name, path: matched.path, dirty } : null,
         attention: repoState.attention[String(pr.id)] ?? null,

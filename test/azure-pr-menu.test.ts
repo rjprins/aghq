@@ -41,6 +41,7 @@ describe("normalizeActivePrRecords", () => {
       id: 42,
       title: "Improve launch flow",
       author: "Rutger Prins",
+      authorUniqueName: "rutger@example.com",
       isDraft: true,
       sourceBranch: "feature/launch-flow",
       targetBranch: "main",
@@ -188,11 +189,12 @@ describe("matchPrWorktree", () => {
   });
 });
 
-function activePr(id: number, isDraft: boolean, createdAt: number) {
+function activePr(id: number, isDraft: boolean, createdAt: number, authorUniqueName = "reviewer@example.com") {
   return {
     id,
     title: `PR ${id}`,
     author: "Reviewer",
+    authorUniqueName,
     isDraft,
     sourceBranch: `feature/${id}`,
     targetBranch: "main",
@@ -214,6 +216,29 @@ function memoryStore(initial: unknown = undefined) {
 }
 
 describe("createAzurePrMenuService", () => {
+  it("marks the signed-in user's PR without exposing their unique name", async () => {
+    const service = createAzurePrMenuService({
+      store: memoryStore(),
+      cacheTtlMs: 60_000,
+      now: () => 1_000_000,
+      repoRootFromCwd: () => "/repo",
+      repoRefForRoot: async () => ref,
+      currentUser: async () => "rutger@example.com",
+      listActivePrs: async () => [activePr(10, false, 100, "RUTGER@example.com")],
+      latestUpdateAt: async (_ref, pr) => pr.createdAt,
+      listWorktrees: () => [],
+      worktreeStatus: async () => ({ dirty: false }),
+    });
+
+    const result = await service.list("/repo");
+
+    expect(result.supported && result.prs[0]).toEqual(expect.objectContaining({
+      id: 10,
+      isOwnAuthor: true,
+    }));
+    expect(result.supported && result.prs[0]).not.toHaveProperty("authorUniqueName");
+  });
+
   it("repairs malformed persisted attention state as a fresh baseline", async () => {
     const store = memoryStore({ "/repo": { known: null, attention: "bad" } });
     const service = createAzurePrMenuService({
@@ -222,6 +247,7 @@ describe("createAzurePrMenuService", () => {
       now: () => 1_000_000,
       repoRootFromCwd: () => "/repo",
       repoRefForRoot: async () => ref,
+      currentUser: async () => "me@example.com",
       listActivePrs: async () => [activePr(10, false, 100)],
       latestUpdateAt: async (_ref, pr) => pr.createdAt,
       listWorktrees: () => [],
@@ -248,6 +274,7 @@ describe("createAzurePrMenuService", () => {
       now: () => 1_000_000,
       repoRootFromCwd: () => "/repo",
       repoRefForRoot: async () => ref,
+      currentUser: async () => "me@example.com",
       listActivePrs: async () => [
         activePr(10, false, 100),
         activePr(11, true, 200),
@@ -286,6 +313,7 @@ describe("createAzurePrMenuService", () => {
       now: () => 1_000_000,
       repoRootFromCwd: () => "/repo",
       repoRefForRoot: async () => ref,
+      currentUser: async () => "me@example.com",
       listActivePrs: async () => Array.from({ length: 12 }, (_, index) => activePr(index + 1, false, index)),
       latestUpdateAt: async (_ref, pr) => {
         activeLookups += 1;
@@ -315,6 +343,7 @@ describe("createAzurePrMenuService", () => {
       now: () => now,
       repoRootFromCwd: () => "/repo",
       repoRefForRoot: async () => ref,
+      currentUser: async () => "me@example.com",
       listActivePrs: async () => {
         calls++;
         return prs;
@@ -352,6 +381,7 @@ describe("createAzurePrMenuService", () => {
       now: () => 1_000_000,
       repoRootFromCwd: () => "/repo",
       repoRefForRoot: async () => ref,
+      currentUser: async () => "me@example.com",
       listActivePrs: async () => [activePr(10, false, 100)],
       latestUpdateAt: async (_ref, pr) => pr.createdAt,
       listWorktrees: () => [],
@@ -381,6 +411,7 @@ describe("createAzurePrMenuService", () => {
       now: () => 1_000_000,
       repoRootFromCwd: () => "/repo",
       repoRefForRoot: async () => null,
+      currentUser: async () => "me@example.com",
       listActivePrs: async () => {
         listCalls++;
         return [];
