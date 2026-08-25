@@ -1030,6 +1030,12 @@ test("PR menu shows active PR details and acknowledges attention after rendering
             headSha: "abc123",
             url: "https://dev.azure.com/example/project/_git/repo/pullrequest/4812?_a=files",
             worktree: { name: "launch-flow", path: "/repo-launch-flow", dirty: true },
+            review: {
+              comments: { resolved: 3, total: 5 },
+              approvals: 2,
+              readiness: "blocked",
+              ciStatus: "passing",
+            },
             attention: "published",
           },
           {
@@ -1044,6 +1050,12 @@ test("PR menu shows active PR details and acknowledges attention after rendering
             headSha: "def456",
             url: "https://dev.azure.com/example/project/_git/repo/pullrequest/4809?_a=files",
             worktree: null,
+            review: {
+              comments: { resolved: 1, total: 1 },
+              approvals: 1,
+              readiness: "checking",
+              ciStatus: "pending",
+            },
             attention: "new",
           },
           {
@@ -1057,7 +1069,13 @@ test("PR menu shows active PR details and acknowledges attention after rendering
             updatedAt: Date.now() - 4 * 86_400_000,
             headSha: "ghi789",
             url: "https://dev.azure.com/example/project/_git/repo/pullrequest/4801?_a=files",
-            worktree: null,
+            worktree: { name: "docs/deployment", path: "/repo-docs-deployment", dirty: false },
+            review: {
+              comments: null,
+              approvals: 0,
+              readiness: "unknown",
+              ciStatus: "failed",
+            },
             attention: null,
           },
         ],
@@ -1091,7 +1109,7 @@ test("PR menu shows active PR details and acknowledges attention after rendering
   const table = modal.getByRole("table", { name: "Active pull requests" });
   await expect(table).toBeVisible();
   await expect(modal.locator(".pr-menu-table-scroll")).toHaveCSS("margin", "12px");
-  for (const heading of ["Title", "Author", "State", "Source branch", "Worktree", "Updated"]) {
+  for (const heading of ["Title", "Author", "State", "Branch / worktree", "Review", "CI", "Updated"]) {
     await expect(table.getByRole("columnheader", { name: heading })).toBeVisible();
   }
   const publishedRow = table.getByRole("row", { name: /PR 4812: Improve launch flow/ });
@@ -1115,11 +1133,23 @@ test("PR menu shows active PR details and acknowledges attention after rendering
   const staleStateColor = await staleRow.locator(".pr-menu-state .active").evaluate((el) => getComputedStyle(el).color);
   expect(staleTitleColor).toBe(mutedColor);
   expect(staleStateColor).toBe(mutedColor);
+  await expect(staleRow.getByText("docs/deployment", { exact: true })).toHaveCount(1);
   await expect(modal.getByText("Improve launch flow")).toBeVisible();
   await expect(modal.getByText("Rutger Prins")).toBeVisible();
   await expect(modal.getByText("feature/launch-flow")).toBeVisible();
   await expect(modal.getByText("Worktree: launch-flow", { exact: true })).toHaveCount(0);
   await expect(publishedRow.getByText("launch-flow", { exact: true })).toBeVisible();
+  await expect(publishedRow.getByText("feature/launch-flow", { exact: true })).toBeVisible();
+  await expect(publishedRow.locator(".pr-menu-ref-cell")).toHaveAttribute(
+    "title",
+    "Branch: feature/launch-flow\nWorktree: launch-flow\nPath: /repo-launch-flow",
+  );
+  await expect(publishedRow.getByText("3/5 resolved", { exact: true })).toBeVisible();
+  await expect(publishedRow.getByText("2 approvals", { exact: true })).toBeVisible();
+  await expect(publishedRow.getByText("Not ready", { exact: true })).toBeVisible();
+  await expect(publishedRow.getByText("Passing", { exact: true })).toBeVisible();
+  await expect(draftRow.getByText("Checking", { exact: true })).toBeVisible();
+  await expect(draftRow.getByText("Pending", { exact: true })).toBeVisible();
   await expect(modal.getByText("dirty")).toBeVisible();
   await expect(modal.getByText("Published")).toBeVisible();
   await expect(modal.getByText("Try the new scanner")).toBeVisible();

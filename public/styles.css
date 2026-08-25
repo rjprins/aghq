@@ -2370,7 +2370,7 @@ button:disabled {
 
 .pr-menu-table {
   width: 100%;
-  min-width: 820px;
+  min-width: 1000px;
   border-spacing: 0;
   border-collapse: separate;
   table-layout: fixed;
@@ -2399,11 +2399,11 @@ button:disabled {
 }
 
 .pr-menu-table th:nth-child(2) {
-  width: 16%;
+  width: 14%;
 }
 
 .pr-menu-table th:nth-child(3) {
-  width: 9%;
+  width: 8%;
 }
 
 .pr-menu-table th:nth-child(4) {
@@ -2411,11 +2411,15 @@ button:disabled {
 }
 
 .pr-menu-table th:nth-child(5) {
-  width: 16%;
+  width: 15%;
 }
 
 .pr-menu-table th:nth-child(6) {
-  width: 9%;
+  width: 8%;
+}
+
+.pr-menu-table th:nth-child(7) {
+  width: 8%;
 }
 
 .pr-menu-table tbody tr:last-child td {
@@ -2438,7 +2442,7 @@ button:disabled {
 }
 
 .pr-menu-title-column {
-  width: 32%;
+  width: 29%;
 }
 
 .pr-menu-table .pr-menu-action-column,
@@ -2548,21 +2552,80 @@ button:disabled {
   color: var(--danger);
 }
 
-.pr-menu-worktree {
+.pr-menu-ref,
+.pr-menu-ref-line {
   display: flex;
-  align-items: center;
-  gap: 6px;
   min-width: 0;
-  color: var(--muted);
 }
 
-.pr-menu-branch {
-  display: block;
-  min-width: 0;
+.pr-menu-ref {
+  flex-direction: column;
+  gap: 3px;
   overflow: hidden;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.pr-menu-ref-line {
+  align-items: center;
+  gap: 6px;
+}
+
+.pr-menu-ref-line.secondary,
+.pr-menu-ref-secondary {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.pr-menu-ref-name,
+.pr-menu-ref-secondary {
+  min-width: 0;
+  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.pr-menu-ref-name {
+  display: block;
+}
+
+.pr-menu-review {
+  overflow: hidden;
+}
+
+.pr-menu-review-metric {
+  display: block;
+  overflow: hidden;
+  margin-bottom: 2px;
+  color: var(--muted);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pr-menu-badge.result {
+  display: inline-block;
+  margin-top: 2px;
+}
+
+.pr-menu-badge.result.ready,
+.pr-menu-badge.result.passing {
+  border-color: color-mix(in srgb, var(--ready) 55%, var(--line));
+  color: var(--ready);
+  background: color-mix(in srgb, var(--ready) 8%, transparent);
+}
+
+.pr-menu-badge.result.blocked,
+.pr-menu-badge.result.failed {
+  border-color: color-mix(in srgb, var(--danger) 55%, var(--line));
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+}
+
+.pr-menu-badge.result.checking,
+.pr-menu-badge.result.pending {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
 }
 
 .pr-menu-launch {

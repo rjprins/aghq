@@ -29,6 +29,29 @@ function attentionLabel(attention: AzurePrMenuItem["attention"]): string | null 
   return null;
 }
 
+const READINESS_LABELS = {
+  ready: { short: "Ready", full: "Ready to merge" },
+  blocked: { short: "Not ready", full: "Not ready to merge" },
+  checking: { short: "Checking", full: "Merge readiness is being checked" },
+  unknown: { short: "Unknown", full: "Merge readiness is unavailable" },
+} as const;
+
+const CI_LABELS = {
+  passing: "Passing",
+  pending: "Pending",
+  failed: "Failed",
+  none: "No CI",
+  unknown: "Unknown",
+} as const;
+
+function branchWorktreeTitle(pr: AzurePrMenuItem): string {
+  if (!pr.worktree) return `Branch: ${pr.sourceBranch}\nNo local worktree`;
+  if (pr.worktree.name === pr.sourceBranch) {
+    return `Branch and worktree: ${pr.sourceBranch}\nPath: ${pr.worktree.path}`;
+  }
+  return `Branch: ${pr.sourceBranch}\nWorktree: ${pr.worktree.name}\nPath: ${pr.worktree.path}`;
+}
+
 const PR_STALE_AFTER_MS = 3 * 24 * 60 * 60 * 1000;
 
 export function renderPrMenu(
@@ -85,8 +108,9 @@ export function renderPrMenu(
                     <th scope="col" className="pr-menu-title-column">Title</th>
                     <th scope="col">Author</th>
                     <th scope="col">State</th>
-                    <th scope="col">Source branch</th>
-                    <th scope="col">Worktree</th>
+                    <th scope="col">Branch / worktree</th>
+                    <th scope="col">Review</th>
+                    <th scope="col">CI</th>
                     <th scope="col">Updated</th>
                     <th scope="col" className="pr-menu-action-column" aria-label="Action"></th>
                   </tr>
@@ -95,6 +119,18 @@ export function renderPrMenu(
                   {model.prs.map((pr) => {
                     const attention = attentionLabel(pr.attention);
                     const isStale = now - pr.updatedAt > PR_STALE_AFTER_MS;
+                    const sameBranchAndWorktree = pr.worktree?.name === pr.sourceBranch;
+                    const commentsLabel = pr.review?.comments
+                      ? `${pr.review.comments.resolved}/${pr.review.comments.total} resolved`
+                      : "Comments unknown";
+                    const approvals = pr.review?.approvals;
+                    const approvalsLabel = approvals === undefined
+                      ? "Approvals unknown"
+                      : `${approvals} ${approvals === 1 ? "approval" : "approvals"}`;
+                    const readiness = pr.review?.readiness ?? "unknown";
+                    const readinessLabel = READINESS_LABELS[readiness];
+                    const ciStatus = pr.review?.ciStatus ?? "unknown";
+                    const ciLabel = CI_LABELS[ciStatus];
                     return (
                       <tr key={pr.id} className={isStale ? "stale" : undefined}>
                         <td className="pr-menu-title-cell">
@@ -126,18 +162,36 @@ export function renderPrMenu(
                             {pr.isDraft ? "Draft" : "Active"}
                           </span>
                         </td>
-                        <td><span className="pr-menu-branch" title={pr.sourceBranch}>{pr.sourceBranch}</span></td>
-                        <td>
-                          <div className="pr-menu-worktree">
-                            {pr.worktree
-                              ? (
-                                <>
-                                  <span title={pr.worktree.path}>{pr.worktree.name}</span>
-                                  {pr.worktree.dirty ? <span className="pr-menu-badge dirty">dirty</span> : null}
-                                </>
-                              )
-                              : <span>No local worktree</span>}
+                        <td className="pr-menu-ref-cell" title={branchWorktreeTitle(pr)}>
+                          <div className="pr-menu-ref">
+                            <div className="pr-menu-ref-line">
+                              <span className="pr-menu-ref-name">{pr.sourceBranch}</span>
+                              {sameBranchAndWorktree && pr.worktree?.dirty
+                                ? <span className="pr-menu-badge dirty">dirty</span>
+                                : null}
+                            </div>
+                            {!pr.worktree
+                              ? <span className="pr-menu-ref-secondary">No local worktree</span>
+                              : !sameBranchAndWorktree
+                                ? (
+                                  <div className="pr-menu-ref-line secondary">
+                                    <span className="pr-menu-ref-name">{pr.worktree.name}</span>
+                                    {pr.worktree.dirty ? <span className="pr-menu-badge dirty">dirty</span> : null}
+                                  </div>
+                                )
+                                : null}
                           </div>
+                        </td>
+                        <td
+                          className="pr-menu-review"
+                          title={`${commentsLabel}. ${approvalsLabel}. ${readinessLabel.full}.`}
+                        >
+                          <span className="pr-menu-review-metric">{commentsLabel}</span>
+                          <span className="pr-menu-review-metric">{approvalsLabel}</span>
+                          <span className={`pr-menu-badge result ${readiness}`}>{readinessLabel.short}</span>
+                        </td>
+                        <td className="pr-menu-ci" title={`CI: ${ciLabel}`}>
+                          <span className={`pr-menu-badge result ${ciStatus}`}>{ciLabel}</span>
                         </td>
                         <td className="pr-menu-updated" title={new Date(pr.updatedAt).toLocaleString()}>
                           {formatRelativeTime(pr.updatedAt)}
