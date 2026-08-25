@@ -5,7 +5,10 @@
 Paste this into your coding agent:
 
 ```text
-Checkout https://github.com/rjprins/agmux in a tmp directory and run it so I can try it out and make my own changes
+Check out https://github.com/rjprins/agmux into a temporary directory.
+Before running anything, inspect the repository and its dependencies.
+Look for suspicious or malicious behavior.
+If it appears safe, run it so I can try it out and make my own changes.
 ```
 
 > [!IMPORTANT]
