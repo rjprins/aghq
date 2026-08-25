@@ -5,6 +5,7 @@ export const KEYBINDING_ACTIONS = [
   { id: "nextPty", label: "Next PTY" },
   { id: "previousPty", label: "Previous PTY" },
   { id: "nextReadyPty", label: "Next ready PTY" },
+  { id: "reopenPrMenu", label: "Reopen last PR list" },
   { id: "claudeModelPreset", label: "Switch Claude model preset" },
 ] as const;
 
@@ -36,6 +37,7 @@ export const DEFAULT_KEYBINDINGS: ResolvedKeybindings = {
   nextPty: { code: "BracketRight", ctrl: true, shift: true, alt: false, meta: false },
   previousPty: { code: "BracketLeft", ctrl: true, shift: true, alt: false, meta: false },
   nextReadyPty: { code: "Space", ctrl: true, shift: true, alt: false, meta: false },
+  reopenPrMenu: { code: "KeyP", ctrl: true, shift: true, alt: false, meta: false },
   claudeModelPreset: { code: "KeyM", ctrl: true, shift: true, alt: false, meta: false },
 };
 

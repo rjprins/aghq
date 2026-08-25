@@ -14,6 +14,7 @@ describe("configurable keybindings", () => {
   it("keeps the existing shortcuts as defaults", () => {
     expect(formatKeybinding(DEFAULT_KEYBINDINGS.newShell)).toEqual(["Ctrl", "Shift", "`"]);
     expect(formatKeybinding(DEFAULT_KEYBINDINGS.claudeModelPreset)).toEqual(["Ctrl", "Shift", "M"]);
+    expect(formatKeybinding(DEFAULT_KEYBINDINGS.reopenPrMenu)).toEqual(["Ctrl", "Shift", "P"]);
   });
 
   it("parses valid overrides and ignores malformed persisted values", () => {

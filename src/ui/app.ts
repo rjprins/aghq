@@ -1468,11 +1468,30 @@ type PrMenuOpenState = {
 };
 
 const PR_MENU_REFRESH_MS = 60_000;
+const LAST_PR_MENU_PROJECT_KEY = "agmux:lastPrMenuProjectRoot";
 const prMenuProjects = new Map<string, PrMenuProjectState>();
 const prMenuRequests = new Map<string, Promise<void>>();
 const prMenuRoot = document.createElement("div");
 document.body.appendChild(prMenuRoot);
 let prMenuOpenState: PrMenuOpenState | null = null;
+let lastViewedPrMenuProjectRoot = loadLastViewedPrMenuProjectRoot();
+
+function loadLastViewedPrMenuProjectRoot(): string | null {
+  try {
+    return sessionStorage.getItem(LAST_PR_MENU_PROJECT_KEY)?.trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+function rememberLastViewedPrMenuProjectRoot(projectRoot: string): void {
+  lastViewedPrMenuProjectRoot = projectRoot;
+  try {
+    sessionStorage.setItem(LAST_PR_MENU_PROJECT_KEY, projectRoot);
+  } catch {
+    // In-memory history still works when browser storage is unavailable.
+  }
+}
 
 function isPrMenuResponse(value: unknown): value is AzurePrMenuResponse {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
@@ -1515,6 +1534,7 @@ function renderPrMenuState(): void {
 function openPrMenu(projectRoot: string): void {
   const state = prMenuProjects.get(projectRoot);
   if (!state?.supported) return;
+  rememberLastViewedPrMenuProjectRoot(projectRoot);
   const projectName = projectRoot.split("/").filter(Boolean).at(-1) ?? projectRoot;
   const prs = state.prs.map((pr) => ({ ...pr, worktree: pr.worktree ? { ...pr.worktree } : null }));
   prMenuOpenState = {
@@ -1537,6 +1557,16 @@ function openPrMenu(projectRoot: string): void {
       clearAcknowledgedPrAttention(projectRoot, markers);
     })
     .catch(() => {});
+}
+
+function reopenLastPrMenu(): void {
+  const projectRoot = lastViewedPrMenuProjectRoot;
+  if (!projectRoot || document.querySelector(".launch-modal-overlay")) return;
+  if (prMenuProjects.get(projectRoot)?.supported) {
+    openPrMenu(projectRoot);
+    return;
+  }
+  void refreshPrMenuForProject(projectRoot, true).then(() => openPrMenu(projectRoot));
 }
 
 function refreshPrMenuForProject(projectRoot: string, force = false): Promise<void> {
@@ -6211,6 +6241,9 @@ function dispatchKeybindingAction(action: KeybindingActionId): boolean {
       return true;
     case "nextReadyPty":
       switchToNextReady();
+      return true;
+    case "reopenPrMenu":
+      reopenLastPrMenu();
       return true;
     case "claudeModelPreset":
       return openClaudeModelPresetOverlay();

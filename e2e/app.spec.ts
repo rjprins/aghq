@@ -1139,11 +1139,18 @@ test("PR menu shows active PR details and acknowledges attention after rendering
 
   await page.keyboard.press("Escape");
   await expect(modal).not.toBeVisible();
-  await prButton.click();
+  await page.keyboard.press("Control+Shift+KeyP");
+  await expect(modal).toBeVisible();
   await expect(modal.getByText("Published", { exact: true })).toHaveCount(0);
   await expect(modal.getByText("New", { exact: true })).toHaveCount(0);
   await page.locator(".pr-menu-overlay").click({ position: { x: 5, y: 5 } });
   await expect(modal).not.toBeVisible();
+
+  await page.reload();
+  await expect(prButton).toBeVisible();
+  await page.keyboard.press("Control+Shift+KeyP");
+  await expect(modal).toBeVisible();
+  await page.keyboard.press("Escape");
 });
 
 test("PR launch context checks out the source branch and can start the review flow", async ({ page }) => {
@@ -2013,6 +2020,8 @@ test("keybindings popup captures, persists, rejects duplicates, and resets short
     const popup = page.getByRole("dialog", { name: "Keybindings" });
     await expect(popup).toBeVisible();
     await expect(popup.getByRole("button", { name: "Change shortcut for New shell" })).toBeFocused();
+    await expect(popup.getByRole("button", { name: "Change shortcut for Reopen last PR list" }))
+      .toContainText("Ctrl+Shift+P");
 
     const toggleBinding = popup.getByRole("button", { name: "Change shortcut for Toggle sidebar" });
     await toggleBinding.click();
