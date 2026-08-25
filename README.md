@@ -1,5 +1,18 @@
 # agmux
 
+## Install prompt
+
+Paste this into your coding agent:
+
+```text
+Checkout https://github.com/rjprins/agmux in a tmp directory and run it so I can try it out and make my own changes
+```
+
+> [!IMPORTANT]
+> **Personal Software**
+>
+> agmux is shaped around one developer's workflow, so it carries specific functional idiosyncrasies and rough edges, and comes with no promise of stability or support. That said, the core model, a browser terminal (xterm.js) over tmux-backed PTYs for managing coding agents, is solid, and others may find it useful to fork and tweak.
+
 Local web UI for managing agent terminal sessions. Streams PTY output to the browser over WebSockets, with customizable triggers and Claude/Codex readiness callbacks backed by tmux pane inference fallback.
 
 Built for managing [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Codex](https://github.com/openai/codex), and other CLI-based coding agents — but works with any terminal program.
@@ -7,8 +20,6 @@ Built for managing [Claude Code](https://docs.anthropic.com/en/docs/claude-code)
 <p align="center">
   <img src="docs/screenshot.png" alt="agmux web UI" width="820">
 </p>
-
-> **Note: this is a personal software development tool.** agmux is shaped around one developer's workflow, so it carries specific functional idiosyncrasies and rough edges, and comes with no promise of stability or support. That said, the core model — a browser terminal (xterm.js) over tmux-backed PTYs for managing coding agents — is solid, and others may find it useful to fork and tweak.
 
 ## Features
 
