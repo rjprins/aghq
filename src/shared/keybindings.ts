@@ -37,7 +37,7 @@ export const DEFAULT_KEYBINDINGS: ResolvedKeybindings = {
   nextPty: { code: "BracketRight", ctrl: true, shift: true, alt: false, meta: false },
   previousPty: { code: "BracketLeft", ctrl: true, shift: true, alt: false, meta: false },
   nextReadyPty: { code: "Space", ctrl: true, shift: true, alt: false, meta: false },
-  reopenPrMenu: { code: "KeyP", ctrl: true, shift: true, alt: false, meta: false },
+  reopenPrMenu: { code: "KeyP", ctrl: false, shift: true, alt: true, meta: false },
   claudeModelPreset: { code: "KeyM", ctrl: true, shift: true, alt: false, meta: false },
 };
 
