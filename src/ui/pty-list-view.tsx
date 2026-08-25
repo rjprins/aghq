@@ -109,7 +109,7 @@ export type PtyListHandlers = {
   onToggleInlineInactive: (groupKey: string) => void;
   onOpenReactivateProject: (groupKey: string) => void;
   onOpenWorktrees: (groupKey: string) => void;
-  onOpenPrMenu: (groupKey: string, anchor: HTMLElement) => void;
+  onOpenPrMenu: (groupKey: string) => void;
   onOpenLaunch: (groupKey: string) => void;
   onOpenLaunchInWorktree: (groupKey: string, worktreePath: string) => void;
   onSelectPty: (ptyId: string) => void;
@@ -510,7 +510,7 @@ export function renderPtyList(root: Element, model: PtyListModel, handlers: PtyL
                     aria-label={`Pull requests for ${group.label} (${group.prMenu.count})${group.prMenu.hasAttention ? ", new activity" : ""}`}
                     onClick={(ev) => {
                       ev.stopPropagation();
-                      handlers.onOpenPrMenu(group.key, ev.currentTarget as HTMLElement);
+                      handlers.onOpenPrMenu(group.key);
                     }}
                   >
                     <span>PR</span>

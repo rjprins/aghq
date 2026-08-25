@@ -1512,39 +1512,14 @@ function renderPrMenuState(): void {
   });
 }
 
-function prMenuPosition(anchor: HTMLElement): PrMenuViewModel["position"] {
-  const rect = anchor.getBoundingClientRect();
-  const margin = 8;
-  const width = Math.max(0, Math.min(920, window.innerWidth - margin * 2));
-  const left = Math.min(
-    Math.max(margin, rect.right - width),
-    Math.max(margin, window.innerWidth - width - margin),
-  );
-  const below = window.innerHeight - rect.bottom - margin * 2;
-  if (below >= 240) {
-    return {
-      top: rect.bottom + 6,
-      left,
-      width,
-      maxHeight: Math.min(560, below),
-    };
-  }
-  return {
-    top: margin,
-    left,
-    width,
-    maxHeight: Math.max(0, window.innerHeight - margin * 2),
-  };
-}
-
-function openPrMenu(projectRoot: string, anchor: HTMLElement): void {
+function openPrMenu(projectRoot: string): void {
   const state = prMenuProjects.get(projectRoot);
   if (!state?.supported) return;
   const projectName = projectRoot.split("/").filter(Boolean).at(-1) ?? projectRoot;
   const prs = state.prs.map((pr) => ({ ...pr, worktree: pr.worktree ? { ...pr.worktree } : null }));
   prMenuOpenState = {
     projectRoot,
-    model: { projectName, prs, position: prMenuPosition(anchor) },
+    model: { projectName, prs },
   };
   renderPrMenuState();
 
@@ -5671,7 +5646,7 @@ function renderList(): void {
     },
     onOpenReactivateProject: (groupKey) => openReactivateProjectModal(groupKey),
     onOpenWorktrees: (groupKey) => openWorktreesPanel(groupKey),
-    onOpenPrMenu: (groupKey, anchor) => openPrMenu(groupKey, anchor),
+    onOpenPrMenu: (groupKey) => openPrMenu(groupKey),
     onOpenLaunch: (groupKey) => openLaunchModal(groupKey),
     onOpenLaunchInWorktree: (groupKey, worktreePath) => openLaunchModal(groupKey, worktreePath),
     onSelectPty: (ptyId) => setActive(ptyId),

@@ -4,7 +4,6 @@ import type { AzurePrMenuItem } from "../shared/protocol.js";
 export type PrMenuViewModel = {
   projectName: string;
   prs: AzurePrMenuItem[];
-  position: { top: number; left: number; width: number; maxHeight: number };
 };
 
 export type PrMenuHandlers = {
@@ -49,17 +48,11 @@ export function renderPrMenu(
       }}
     >
       <section
-        className="pr-menu-popover"
+        className="pr-menu-modal"
         role="dialog"
-        aria-modal="false"
+        aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
-        style={{
-          top: `${model.position.top}px`,
-          left: `${model.position.left}px`,
-          width: `${model.position.width}px`,
-          maxHeight: `${model.position.maxHeight}px`,
-        }}
         ref={(element) => {
           if (element && element !== document.activeElement && !element.contains(document.activeElement)) {
             element.focus();

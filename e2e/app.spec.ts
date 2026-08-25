@@ -1063,9 +1063,17 @@ test("PR menu shows active PR details and acknowledges attention after rendering
   await expect(prButton.locator(".pr-menu-attention-dot")).toHaveCount(1);
   await prButton.click();
 
-  const popover = page.getByRole("dialog", { name: "Pull requests for agmux" });
-  await expect(popover).toBeVisible();
-  const table = popover.getByRole("table", { name: "Active pull requests" });
+  const modal = page.getByRole("dialog", { name: "Pull requests for agmux" });
+  await expect(modal).toBeVisible();
+  await expect(modal).toHaveAttribute("aria-modal", "true");
+  const modalBox = await modal.boundingBox();
+  const viewport = page.viewportSize();
+  expect(modalBox).not.toBeNull();
+  expect(viewport).not.toBeNull();
+  if (!modalBox || !viewport) throw new Error("PR modal geometry is unavailable");
+  expect(Math.abs(modalBox.x + modalBox.width / 2 - viewport.width / 2)).toBeLessThan(2);
+  expect(Math.abs(modalBox.y + modalBox.height / 2 - viewport.height / 2)).toBeLessThan(2);
+  const table = modal.getByRole("table", { name: "Active pull requests" });
   await expect(table).toBeVisible();
   for (const heading of ["Title", "Author", "State", "Source branch", "Worktree", "Updated"]) {
     await expect(table.getByRole("columnheader", { name: heading })).toBeVisible();
@@ -1076,21 +1084,21 @@ test("PR menu shows active PR details and acknowledges attention after rendering
   const draftRow = table.getByRole("row", { name: /PR 4809: Try the new scanner/ });
   await expect(draftRow.getByRole("cell", { name: "Alex Reviewer" })).toBeVisible();
   await expect(draftRow.getByRole("cell", { name: "Draft" })).toBeVisible();
-  await expect(popover.getByText("Improve launch flow")).toBeVisible();
-  await expect(popover.getByText("Rutger Prins")).toBeVisible();
-  await expect(popover.getByText("feature/launch-flow")).toBeVisible();
-  await expect(popover.getByText("Worktree: launch-flow", { exact: true })).toBeVisible();
-  await expect(popover.getByText("dirty")).toBeVisible();
-  await expect(popover.getByText("Published")).toBeVisible();
-  await expect(popover.getByText("Try the new scanner")).toBeVisible();
-  await expect(popover.getByText("Draft")).toBeVisible();
-  await expect(popover.getByText("New", { exact: true })).toBeVisible();
-  await expect(popover.getByRole("button", { name: "Launch agent on PR 4812" })).toBeVisible();
-  await expect(popover.getByRole("link", { name: /PR 4812: Improve launch flow/ })).toHaveAttribute(
+  await expect(modal.getByText("Improve launch flow")).toBeVisible();
+  await expect(modal.getByText("Rutger Prins")).toBeVisible();
+  await expect(modal.getByText("feature/launch-flow")).toBeVisible();
+  await expect(modal.getByText("Worktree: launch-flow", { exact: true })).toBeVisible();
+  await expect(modal.getByText("dirty")).toBeVisible();
+  await expect(modal.getByText("Published")).toBeVisible();
+  await expect(modal.getByText("Try the new scanner")).toBeVisible();
+  await expect(modal.getByText("Draft")).toBeVisible();
+  await expect(modal.getByText("New", { exact: true })).toBeVisible();
+  await expect(modal.getByRole("button", { name: "Launch agent on PR 4812" })).toBeVisible();
+  await expect(modal.getByRole("link", { name: /PR 4812: Improve launch flow/ })).toHaveAttribute(
     "href",
     /pullrequest\/4812/,
   );
-  await expect(popover.getByRole("link", { name: /PR 4812: Improve launch flow/ })).toHaveAttribute(
+  await expect(modal.getByRole("link", { name: /PR 4812: Improve launch flow/ })).toHaveAttribute(
     "title",
     "Improve launch flow",
   );
@@ -1098,10 +1106,12 @@ test("PR menu shows active PR details and acknowledges attention after rendering
   await expect(prButton.locator(".pr-menu-attention-dot")).toHaveCount(0);
 
   await page.keyboard.press("Escape");
-  await expect(popover).not.toBeVisible();
+  await expect(modal).not.toBeVisible();
   await prButton.click();
-  await expect(popover.getByText("Published", { exact: true })).toHaveCount(0);
-  await expect(popover.getByText("New", { exact: true })).toHaveCount(0);
+  await expect(modal.getByText("Published", { exact: true })).toHaveCount(0);
+  await expect(modal.getByText("New", { exact: true })).toHaveCount(0);
+  await page.locator(".pr-menu-overlay").click({ position: { x: 5, y: 5 } });
+  await expect(modal).not.toBeVisible();
 });
 
 test("PR launch context checks out the source branch and can start the review flow", async ({ page }) => {
