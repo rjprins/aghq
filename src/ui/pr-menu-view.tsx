@@ -29,6 +29,8 @@ function attentionLabel(attention: AzurePrMenuItem["attention"]): string | null 
   return null;
 }
 
+const PR_STALE_AFTER_MS = 3 * 24 * 60 * 60 * 1000;
+
 export function renderPrMenu(
   root: Element,
   model: PrMenuViewModel | null,
@@ -40,6 +42,7 @@ export function renderPrMenu(
   }
 
   const titleId = "pr-menu-title";
+  const now = Date.now();
   render(
     <div
       className="pr-menu-overlay"
@@ -91,8 +94,9 @@ export function renderPrMenu(
                 <tbody>
                   {model.prs.map((pr) => {
                     const attention = attentionLabel(pr.attention);
+                    const isStale = now - pr.updatedAt > PR_STALE_AFTER_MS;
                     return (
-                      <tr key={pr.id}>
+                      <tr key={pr.id} className={isStale ? "stale" : undefined}>
                         <td className="pr-menu-title-cell">
                           <div className="pr-menu-title-line">
                             <a
@@ -111,7 +115,12 @@ export function renderPrMenu(
                               : null}
                           </div>
                         </td>
-                        <td className="pr-menu-author" title={pr.author}>{pr.author}</td>
+                        <td className={`pr-menu-author${pr.isOwnAuthor ? " own" : ""}`} title={pr.author}>
+                          <div className="pr-menu-author-line">
+                            <span className="pr-menu-author-name">{pr.author}</span>
+                            {pr.isOwnAuthor ? <span className="pr-menu-badge you">You</span> : null}
+                          </div>
+                        </td>
                         <td className="pr-menu-state">
                           <span className={`pr-menu-badge ${pr.isDraft ? "draft" : "active"}`}>
                             {pr.isDraft ? "Draft" : "Active"}
@@ -123,7 +132,7 @@ export function renderPrMenu(
                             {pr.worktree
                               ? (
                                 <>
-                                  <span title={pr.worktree.path}>Worktree: {pr.worktree.name}</span>
+                                  <span title={pr.worktree.path}>{pr.worktree.name}</span>
                                   {pr.worktree.dirty ? <span className="pr-menu-badge dirty">dirty</span> : null}
                                 </>
                               )

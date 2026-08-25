@@ -1021,6 +1021,7 @@ test("PR menu shows active PR details and acknowledges attention after rendering
             id: 4812,
             title: "Improve launch flow",
             author: "Rutger Prins",
+            isOwnAuthor: true,
             isDraft: false,
             sourceBranch: "feature/launch-flow",
             targetBranch: "main",
@@ -1044,6 +1045,20 @@ test("PR menu shows active PR details and acknowledges attention after rendering
             url: "https://dev.azure.com/example/project/_git/repo/pullrequest/4809?_a=files",
             worktree: null,
             attention: "new",
+          },
+          {
+            id: 4801,
+            title: "Refresh deployment docs",
+            author: "Sam Developer",
+            isDraft: false,
+            sourceBranch: "docs/deployment",
+            targetBranch: "main",
+            createdAt: Date.now() - 10 * 86_400_000,
+            updatedAt: Date.now() - 4 * 86_400_000,
+            headSha: "ghi789",
+            url: "https://dev.azure.com/example/project/_git/repo/pullrequest/4801?_a=files",
+            worktree: null,
+            attention: null,
           },
         ],
       }),
@@ -1075,19 +1090,36 @@ test("PR menu shows active PR details and acknowledges attention after rendering
   expect(Math.abs(modalBox.y + modalBox.height / 2 - viewport.height / 2)).toBeLessThan(2);
   const table = modal.getByRole("table", { name: "Active pull requests" });
   await expect(table).toBeVisible();
+  await expect(modal.locator(".pr-menu-table-scroll")).toHaveCSS("margin", "12px");
   for (const heading of ["Title", "Author", "State", "Source branch", "Worktree", "Updated"]) {
     await expect(table.getByRole("columnheader", { name: heading })).toBeVisible();
   }
   const publishedRow = table.getByRole("row", { name: /PR 4812: Improve launch flow/ });
   await expect(publishedRow.getByRole("cell", { name: "Rutger Prins" })).toBeVisible();
   await expect(publishedRow.getByRole("cell", { name: "Active" })).toBeVisible();
+  await expect(publishedRow.locator(".pr-menu-author.own")).toContainText("Rutger Prins");
+  await expect(publishedRow.getByText("You", { exact: true })).toBeVisible();
   const draftRow = table.getByRole("row", { name: /PR 4809: Try the new scanner/ });
   await expect(draftRow.getByRole("cell", { name: "Alex Reviewer" })).toBeVisible();
   await expect(draftRow.getByRole("cell", { name: "Draft" })).toBeVisible();
+  const draftColor = await draftRow.getByText("Draft", { exact: true }).evaluate((el) => getComputedStyle(el).color);
+  const publishedColor = await publishedRow.getByText("Active", { exact: true })
+    .evaluate((el) => getComputedStyle(el).color);
+  const mutedColor = await draftRow.locator(".pr-menu-author").evaluate((el) => getComputedStyle(el).color);
+  expect(draftColor).not.toBe(publishedColor);
+  expect(draftColor).not.toBe(mutedColor);
+  expect(publishedColor).not.toBe(mutedColor);
+  const staleRow = table.getByRole("row", { name: /PR 4801: Refresh deployment docs/ });
+  await expect(staleRow).toHaveClass(/stale/);
+  const staleTitleColor = await staleRow.locator(".pr-menu-title").evaluate((el) => getComputedStyle(el).color);
+  const staleStateColor = await staleRow.locator(".pr-menu-state .active").evaluate((el) => getComputedStyle(el).color);
+  expect(staleTitleColor).toBe(mutedColor);
+  expect(staleStateColor).toBe(mutedColor);
   await expect(modal.getByText("Improve launch flow")).toBeVisible();
   await expect(modal.getByText("Rutger Prins")).toBeVisible();
   await expect(modal.getByText("feature/launch-flow")).toBeVisible();
-  await expect(modal.getByText("Worktree: launch-flow", { exact: true })).toBeVisible();
+  await expect(modal.getByText("Worktree: launch-flow", { exact: true })).toHaveCount(0);
+  await expect(publishedRow.getByText("launch-flow", { exact: true })).toBeVisible();
   await expect(modal.getByText("dirty")).toBeVisible();
   await expect(modal.getByText("Published")).toBeVisible();
   await expect(modal.getByText("Try the new scanner")).toBeVisible();
